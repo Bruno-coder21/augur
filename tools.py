@@ -10,7 +10,7 @@ from typing import Any, Callable
 from . import friday
 from .store import parse_iso
 
-log = logging.getLogger("bussola.tools")
+log = logging.getLogger("augur.tools")
 
 
 def _json(payload: dict[str, Any]) -> str:
@@ -24,7 +24,7 @@ def _safe(fn: Callable[..., dict[str, Any]]) -> Callable[..., str]:
         except ValueError as exc:
             return _json({"ok": False, "error": str(exc)})
         except Exception as exc:
-            log.warning("bussola tool %s failed: %s", fn.__name__, exc, exc_info=True)
+            log.warning("augur tool %s failed: %s", fn.__name__, exc, exc_info=True)
             return _json({"ok": False, "error": "internal error; the details are in the Hermes log"})
 
     handler.__name__ = fn.__name__
@@ -32,13 +32,13 @@ def _safe(fn: Callable[..., dict[str, Any]]) -> Callable[..., str]:
 
 
 def make_handlers(app: Any) -> dict[str, Callable[..., str]]:
-    def bussola_park(args: dict[str, Any], session_id: str = "", **_: Any) -> dict[str, Any]:
+    def augur_park(args: dict[str, Any], session_id: str = "", **_: Any) -> dict[str, Any]:
         summary = str(args.get("summary") or "").strip()
         if not summary:
             raise ValueError("summary is required (at most 60 characters)")
         return app.park(summary, session_id=session_id)
 
-    def bussola_queue(args: dict[str, Any], **_: Any) -> dict[str, Any]:
+    def augur_queue(args: dict[str, Any], **_: Any) -> dict[str, Any]:
         status = str(args.get("status") or "parked")
         if status not in ("parked", "done", "needs_you", "dropped", "all"):
             raise ValueError("status must be parked, done, needs_you, dropped or all")
@@ -59,11 +59,11 @@ def make_handlers(app: Any) -> dict[str, Callable[..., str]]:
             ],
         }
 
-    def bussola_done(args: dict[str, Any], **_: Any) -> dict[str, Any]:
+    def augur_done(args: dict[str, Any], **_: Any) -> dict[str, Any]:
         try:
             item_id = int(args.get("id"))
         except (TypeError, ValueError):
-            raise ValueError("id must be the integer id from bussola_queue") from None
+            raise ValueError("id must be the integer id from augur_queue") from None
         status = str(args.get("status") or "")
         if app.store.queue_get(item_id) is None:
             raise ValueError(f"no Queue item with id {item_id}")
@@ -76,7 +76,7 @@ def make_handlers(app: Any) -> dict[str, Callable[..., str]]:
         app.store.queue_close(item_id, status, str(args.get("result_line") or ""), draft, app.clock())
         return {"ok": True, "id": item_id, "status": status, "remaining": app.store.queue_size()}
 
-    def bussola_report(args: dict[str, Any], **_: Any) -> dict[str, Any]:
+    def augur_report(args: dict[str, Any], **_: Any) -> dict[str, Any]:
         result = app.build_report()
         out: dict[str, Any] = {"ok": True, "caption": result["caption"]}
         if result.get("path"):
@@ -87,9 +87,9 @@ def make_handlers(app: Any) -> dict[str, Callable[..., str]]:
         return out
 
     return {
-        "bussola_park": _safe(bussola_park),
-        "bussola_queue": _safe(bussola_queue),
-        "bussola_done": _safe(bussola_done),
-        "bussola_report": _safe(bussola_report),
+        "augur_park": _safe(augur_park),
+        "augur_queue": _safe(augur_queue),
+        "augur_done": _safe(augur_done),
+        "augur_report": _safe(augur_report),
     }
 

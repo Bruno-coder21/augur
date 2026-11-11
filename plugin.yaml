@@ -1,14 +1,14 @@
-name: bussola
+name: augur
 version: "0.1.0"
 manifest_version: 2
 api_version: 1
 license: MIT
 author: Bruno Verona
-homepage: https://github.com/Bruno-coder21/bussola
+homepage: https://github.com/Bruno-coder21/augur
 description: Your agent knows your 3 priorities, notices drift, parks detours and clears them on Friday.
 tags: [productivity, focus, telegram, cron]
 requires_hermes: ">=0.23.1"
-provides_tools: [bussola_park, bussola_queue, bussola_done, bussola_report]
+provides_tools: [augur_park, augur_queue, augur_done, augur_report]
 provides_hooks: [pre_llm_call, post_llm_call, post_api_request, post_auxiliary_call, pre_tool_call, transform_llm_output]
 python_dependencies:
   - "matplotlib>=3.8,<4"
@@ -18,12 +18,12 @@ config_schema:
     choices: [en, pt]
     default: en
     label: Language
-    description: Language of every Bussola message, panel and report.
+    description: Language of every Augur message, panel and report.
   max_nudges_per_day:
     type: int
     default: 3
     label: Max nudges per day
-    description: Bussola stays quiet after this many nudges in a day.
+    description: Augur stays quiet after this many nudges in a day.
   nudge_cooldown_minutes:
     type: int
     default: 45

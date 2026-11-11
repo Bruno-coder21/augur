@@ -1,4 +1,4 @@
-"""Slash commands: ``/bussola [goals|fix|pause|demo|report|eval|help]`` and ``/park``."""
+"""Slash commands: ``/augur [goals|fix|pause|demo|report|eval|help]`` and ``/park``."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from typing import Any, Optional
 from . import demo, panel, privacy, strings
 from .classifier import TASK as CLASSIFIER_TASK
 
-log = logging.getLogger("bussola.commands")
+log = logging.getLogger("augur.commands")
 
 SPLITS = ["50/30/20", "40/40/20", "34/33/33"]
 _SPLIT_RE = re.compile(r"(\d{1,3})\s*/\s*(\d{1,3})\s*/\s*(\d{1,3})\s*%?\s*$")
@@ -103,8 +103,8 @@ class Commands:
         except Exception:
             return None
 
-    # -- /bussola -----------------------------------------------------------------
-    def bussola(self, raw_args: str = "", session_id: str = "", platform: str = "", **_: Any) -> str:
+    # -- /augur -----------------------------------------------------------------
+    def augur(self, raw_args: str = "", session_id: str = "", platform: str = "", **_: Any) -> str:
         lang = self.app.lang()
         try:
             args = (raw_args or "").strip()
@@ -127,7 +127,7 @@ class Commands:
                 return self.run_eval(rest, lang)
             return strings.t("help", lang)
         except Exception as exc:
-            log.warning("bussola command failed: %s", exc, exc_info=True)
+            log.warning("augur command failed: %s", exc, exc_info=True)
             return strings.t("error", lang)
 
     def park(self, raw_args: str = "", session_id: str = "", **_: Any) -> str:
@@ -140,7 +140,7 @@ class Commands:
             item = self.app.store.queue_get(out["id"])
             return strings.t("park_saved", lang, id=out["id"], summary=item["summary60"], n=out["queue_size"])
         except Exception as exc:
-            log.warning("bussola /park failed: %s", exc, exc_info=True)
+            log.warning("augur /park failed: %s", exc, exc_info=True)
             return strings.t("error", lang)
 
     # -- panel --------------------------------------------------------------------
@@ -202,15 +202,15 @@ class Commands:
                 instructions=GOALS_INSTRUCTIONS,
                 input=[{"type": "text", "text": privacy.clip(privacy.redact(text), 600)}],
                 json_schema=GOALS_SCHEMA,
-                schema_name="bussola_goals",
+                schema_name="augur_goals",
                 temperature=0,
                 max_tokens=300,
                 timeout=30,
-                purpose="bussola: turn the user's description into 3 goals",
+                purpose="augur: turn the user's description into 3 goals",
                 task=CLASSIFIER_TASK,
             )
         except Exception as exc:
-            log.info("bussola goal extraction failed: %s", type(exc).__name__)
+            log.info("augur goal extraction failed: %s", type(exc).__name__)
             return None
         parsed = getattr(out, "parsed", None)
         items = parsed.get("goals") if isinstance(parsed, dict) else None

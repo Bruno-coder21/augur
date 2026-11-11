@@ -1,8 +1,8 @@
-"""Tokens per goal, and what Bussola itself costs.
+"""Tokens per goal, and what Augur itself costs.
 
 Hermes reports token counts on ``post_api_request`` (the user's own agent
-calls) and ``post_auxiliary_call`` (Bussola's classifier and insight calls).
-Neither carries a money amount in this Hermes version, so Bussola reports
+calls) and ``post_auxiliary_call`` (Augur's classifier and insight calls).
+Neither carries a money amount in this Hermes version, so Augur reports
 tokens only and never guesses prices.
 """
 
@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-BUSSOLA_TASKS = frozenset({"bussola_classifier", "bussola_insight"})
+AUGUR_TASKS = frozenset({"augur_classifier", "augur_insight"})
 
 
 def usage_tokens(usage: Any) -> int:

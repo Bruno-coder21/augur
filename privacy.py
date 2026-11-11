@@ -1,6 +1,6 @@
 """Redaction and the 60-character rule.
 
-Nothing Bussola stores is longer than 60 characters of user text, and
+Nothing Augur stores is longer than 60 characters of user text, and
 everything passes through Hermes's public ``redact_sensitive_text(force=True)``
 first. When Hermes is not importable (unit tests, CI), a conservative local
 fallback masks the obvious secret shapes.

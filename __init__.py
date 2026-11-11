@@ -1,4 +1,4 @@
-"""Bussola: your agent knows your 3 priorities, notices drift, parks detours
+"""Augur: your agent knows your 3 priorities, notices drift, parks detours
 and clears them on Friday.
 
 ``register(ctx)`` only wires the pieces; behavior lives in the modules:
@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import logging
 
-log = logging.getLogger("bussola")
+log = logging.getLogger("augur")
 
-TOOLS = ("bussola_park", "bussola_queue", "bussola_done", "bussola_report")
+TOOLS = ("augur_park", "augur_queue", "augur_done", "augur_report")
 HOOKS = (
     "pre_llm_call",
     "post_llm_call",
@@ -25,27 +25,27 @@ HOOKS = (
 def register(ctx):
     from . import friday, schemas
     from .commands import Commands
-    from .core import Bussola
+    from .core import Augur
     from .tools import make_handlers
 
-    app = Bussola(ctx)
+    app = Augur(ctx)
     try:
         app.store.migrate()
     except Exception as exc:  # storage trouble must not take the agent down; hooks stay silent
-        log.warning("bussola storage unavailable at load: %s", exc)
+        log.warning("augur storage unavailable at load: %s", exc)
 
     # Two model slots, configurable in the model screens. They follow the compression
     # slot until the user pins a model; the panel warns when labels arrive too slowly.
     ctx.register_auxiliary_task(
-        "bussola_classifier",
-        display_name="Bussola classifier",
+        "augur_classifier",
+        display_name="Augur classifier",
         description="Labels each request against your 3 weekly goals (one short call per message). Pin a fast model.",
         inherit_from="compression",
         defaults={"reasoning_effort": "none", "timeout": 20},
     )
     ctx.register_auxiliary_task(
-        "bussola_insight",
-        display_name="Bussola hidden priority",
+        "augur_insight",
+        display_name="Augur hidden priority",
         description="Finds a recurring theme in the week's detours (one call per weekly report).",
         inherit_from="compression",
         defaults={"reasoning_effort": "low", "timeout": 60},
@@ -60,17 +60,17 @@ def register(ctx):
 
     handlers = make_handlers(app)
     for name, schema in (
-        ("bussola_park", schemas.BUSSOLA_PARK),
-        ("bussola_queue", schemas.BUSSOLA_QUEUE),
-        ("bussola_done", schemas.BUSSOLA_DONE),
-        ("bussola_report", schemas.BUSSOLA_REPORT),
+        ("augur_park", schemas.AUGUR_PARK),
+        ("augur_queue", schemas.AUGUR_QUEUE),
+        ("augur_done", schemas.AUGUR_DONE),
+        ("augur_report", schemas.AUGUR_REPORT),
     ):
-        ctx.register_tool(name=name, toolset="bussola", schema=schema, handler=handlers[name], emoji="🧭")
+        ctx.register_tool(name=name, toolset="augur", schema=schema, handler=handlers[name], emoji="🧭")
 
     commands = Commands(app)
     ctx.register_command(
-        "bussola",
-        commands.bussola,
+        "augur",
+        commands.augur,
         description="Your week against your 3 goals: goals, fix, pause, report, demo",
         args_hint="[goals|fix|pause|report|demo]",
     )

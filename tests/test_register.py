@@ -7,8 +7,8 @@ import re
 import pytest
 from conftest import REPO, FakeCtx
 
-import bussola
-from bussola import strings
+import augur
+from augur import strings
 
 
 def _manifest_list(key: str) -> list[str]:
@@ -20,13 +20,13 @@ def _manifest_list(key: str) -> list[str]:
 
 @pytest.fixture
 def registered(monkeypatch, tmp_path):
-    from bussola import store as store_mod
+    from augur import store as store_mod
 
     monkeypatch.setattr(store_mod, "_default_connect", lambda: __import__("sqlite3").connect(
         str(tmp_path / "db.sqlite"), check_same_thread=False))
     monkeypatch.setattr(store_mod, "default_data_dir", lambda: tmp_path / "data")
     ctx = FakeCtx()
-    bussola.register(ctx)
+    augur.register(ctx)
     yield ctx
     for cb in ctx.unload:
         cb()
@@ -35,16 +35,16 @@ def registered(monkeypatch, tmp_path):
 def test_register_matches_manifest(registered):
     assert sorted(registered.tools) == sorted(_manifest_list("provides_tools"))
     assert sorted(registered.hooks) == sorted(_manifest_list("provides_hooks"))
-    assert set(bussola.TOOLS) == set(registered.tools)
-    assert set(bussola.HOOKS) == set(registered.hooks)
+    assert set(augur.TOOLS) == set(registered.tools)
+    assert set(augur.HOOKS) == set(registered.hooks)
 
 
 def test_register_surfaces(registered):
-    assert set(registered.commands) == {"bussola", "park"}
-    assert set(registered.aux_tasks) == {"bussola_classifier", "bussola_insight"}
+    assert set(registered.commands) == {"augur", "park"}
+    assert set(registered.aux_tasks) == {"augur_classifier", "augur_insight"}
     assert all(t["inherit_from"] == "compression" for t in registered.aux_tasks.values())
     assert set(registered.blueprints) == {"friday"}
-    assert all(t["toolset"] == "bussola" for t in registered.tools.values())
+    assert all(t["toolset"] == "augur" for t in registered.tools.values())
 
 
 def test_blueprint_renders_friday_schedule(registered):
@@ -55,7 +55,7 @@ def test_blueprint_renders_friday_schedule(registered):
     days = {"friday": "5", "wednesday": "3"}
     schedule = bp["schedule_template"].format(minute=int(minute), hour=int(hour), dow=days[slots["day"]["default"]])
     assert schedule == "30 17 * * 5"
-    assert "[bussola:friday]" in bp["prompt_template"]
+    assert "[augur:friday]" in bp["prompt_template"]
     bp["prompt_template"].format()  # Hermes formats the prompt with slot values: no stray braces
 
 
@@ -103,14 +103,14 @@ def test_hook_callbacks_accept_kwargs(registered):
 
 
 def test_register_survives_broken_storage(monkeypatch):
-    from bussola import store as store_mod
+    from augur import store as store_mod
 
     def boom():
         raise OSError("disk full")
 
     monkeypatch.setattr(store_mod, "_default_connect", boom)
     ctx = FakeCtx()
-    bussola.register(ctx)  # must not raise
+    augur.register(ctx)  # must not raise
     assert ctx.hooks["pre_llm_call"](session_id="s", user_message="plan my trip to Rome please",
                                      conversation_history=[], turn_id="t") is None
     for cb in ctx.unload:
@@ -122,6 +122,6 @@ def test_readme_mentions_every_command():
     if not readme.exists():
         pytest.skip("README not written yet")
     text = readme.read_text()
-    for cmd in ("/bussola goals", "/bussola fix", "/bussola pause", "/bussola demo", "/bussola report", "/park"):
+    for cmd in ("/augur goals", "/augur fix", "/augur pause", "/augur demo", "/augur report", "/park"):
         assert cmd in text, cmd
 

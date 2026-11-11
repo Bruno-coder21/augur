@@ -1,8 +1,8 @@
 """Measure the classifier: detour precision/recall, goal accuracy, latency, tokens.
 
-Run inside Hermes with ``/bussola eval`` (dev set) or ``/bussola eval final``
+Run inside Hermes with ``/augur eval`` (dev set) or ``/augur eval final``
 (the held-out set: run it once, at the end, never tune on it). Results are
-written to ``<plugin-data>/bussola/evals/`` and returned as a Markdown table.
+written to ``<plugin-data>/augur/evals/`` and returned as a Markdown table.
 """
 
 from __future__ import annotations
@@ -155,7 +155,7 @@ def run(
 
 
 def run_with_app(app: Any, final: bool = False) -> tuple[Path, str]:
-    app.evaluating = True  # eval calls are not counted as Bussola's own cost
+    app.evaluating = True  # eval calls are not counted as Augur's own cost
     try:
         return run(
             app.classifier.call,

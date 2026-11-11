@@ -1,4 +1,4 @@
-"""The ``/bussola`` panel: the week at a glance, in the same words as the PNG.
+"""The ``/augur`` panel: the week at a glance, in the same words as the PNG.
 
 ANSI colors only on the classic CLI; every other surface gets plain text
 (messaging apps and Desktop chat bubbles do not render escape codes).

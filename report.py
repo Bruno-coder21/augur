@@ -19,7 +19,7 @@ from .assets import palette
 from .metering import human_tokens
 from .store import Store
 
-log = logging.getLogger("bussola.report")
+log = logging.getLogger("augur.report")
 
 WIDTH, HEIGHT, DPI = 1080, 1350, 100
 MARGIN = 64
@@ -380,7 +380,7 @@ def build(store: Store, data_dir: Path, now: datetime, lang: str, hidden: Option
     except ImportError:
         return {"path": None, "caption": caption, "text": strings.t("report_text_fallback", lang) + "\n" + text_report}
     except Exception as exc:  # a drawing bug must never break the run
-        log.warning("bussola report rendering failed: %s", exc)
+        log.warning("augur report rendering failed: %s", exc)
         return {"path": None, "caption": caption, "text": text_report}
     store.meta_set("last_report_path", str(path))
     return {"path": str(path), "caption": caption, "text": text_report}

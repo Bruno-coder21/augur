@@ -1,9 +1,9 @@
 """Tool schemas the model sees. Short descriptions; the Friday prompt does the rest."""
 
-BUSSOLA_PARK = {
-    "name": "bussola_park",
+AUGUR_PARK = {
+    "name": "augur_park",
     "description": (
-        "Park a detour in the user's Bussola Queue so it is handled in the weekly Friday run instead of now. "
+        "Park a detour in the user's Augur Queue so it is handled in the weekly Friday run instead of now. "
         "Call it when the user chooses \"Park it\" after a 🧭 question, or asks to leave something for later."
     ),
     "parameters": {
@@ -18,9 +18,9 @@ BUSSOLA_PARK = {
     },
 }
 
-BUSSOLA_QUEUE = {
-    "name": "bussola_queue",
-    "description": "List the items parked in the user's Bussola Queue, oldest first, plus drafts_dir for draft files.",
+AUGUR_QUEUE = {
+    "name": "augur_queue",
+    "description": "List the items parked in the user's Augur Queue, oldest first, plus drafts_dir for draft files.",
     "parameters": {
         "type": "object",
         "properties": {
@@ -33,8 +33,8 @@ BUSSOLA_QUEUE = {
     },
 }
 
-BUSSOLA_DONE = {
-    "name": "bussola_done",
+AUGUR_DONE = {
+    "name": "augur_done",
     "description": (
         "Close one Queue item. status \"done\" when the research or draft is ready, \"needs_you\" when it needs "
         "the user's approval, decision or an action outside reading and drafting, \"dropped\" when it no longer matters."
@@ -42,7 +42,7 @@ BUSSOLA_DONE = {
     "parameters": {
         "type": "object",
         "properties": {
-            "id": {"type": "integer", "description": "Queue item id from bussola_queue."},
+            "id": {"type": "integer", "description": "Queue item id from augur_queue."},
             "status": {"type": "string", "enum": ["done", "needs_you", "dropped"]},
             "result_line": {"type": "string", "description": "One line: what is ready, or why it needs the user."},
             "draft_path": {"type": "string", "description": "Absolute path of the draft file inside drafts_dir, if any."},
@@ -51,10 +51,10 @@ BUSSOLA_DONE = {
     },
 }
 
-BUSSOLA_REPORT = {
-    "name": "bussola_report",
+AUGUR_REPORT = {
+    "name": "augur_report",
     "description": (
-        "Build the user's weekly Bussola report image. Returns the PNG path, the caption lines and the MEDIA line "
+        "Build the user's weekly Augur report image. Returns the PNG path, the caption lines and the MEDIA line "
         "to end your reply with."
     ),
     "parameters": {"type": "object", "properties": {}},

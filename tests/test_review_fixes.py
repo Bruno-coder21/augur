@@ -6,17 +6,17 @@ from datetime import timedelta
 
 from conftest import FakeOut, detour, on_goal, turn
 
-from bussola import demo
-from bussola.commands import Commands
+from augur import demo
+from augur.commands import Commands
 
 
 def test_quickstart_order_keeps_real_goals(make_app):
     app = make_app(goals=False)
     c = Commands(app)
-    c.bussola("demo")
-    out = c.bussola("goals Ship beta, Write thesis, Learn Rust 50/30/20")
+    c.augur("demo")
+    out = c.augur("goals Ship beta, Write thesis, Learn Rust 50/30/20")
     assert "demo data was removed" in out
-    c.bussola("demo clear")
+    c.augur("demo clear")
     assert [g["name"] for g in app.store.goals()] == ["Ship beta", "Write thesis", "Learn Rust"]
     assert not app.store.has_demo()
 
@@ -55,9 +55,9 @@ def test_answer_to_a_nudge_is_not_a_request_and_park_breaks_the_streak(make_app)
     assert turn(app, "and a playlist for that dinner party", turn_id="b")
     app.on_post_llm_call(session_id="s1", turn_id="b")
     assert turn(app, "Park it", turn_id="c") is None
-    from bussola.tools import make_handlers
+    from augur.tools import make_handlers
 
-    make_handlers(app)["bussola_park"]({"summary": "Dinner playlist"}, session_id="s1")
+    make_handlers(app)["augur_park"]({"summary": "Dinner playlist"}, session_id="s1")
     app.on_post_llm_call(session_id="s1", turn_id="c")
     counted = [t for t in app.store.turns_between(app.clock() - timedelta(1), app.clock() + timedelta(1))]
     assert len(counted) == 2  # "Park it" did not become a 3rd request
@@ -80,7 +80,7 @@ def test_acknowledgements_are_not_counted_and_inherited_rows_do_not_build_streak
 def test_fix_never_shows_another_sessions_request(make_app):
     app = make_app(lambda kw: on_goal(1, summary="Session A secret plan"))
     turn(app, "draft the pilot pricing tiers for VDRI", session="A")
-    out = Commands(app).bussola("fix", session_id="B")
+    out = Commands(app).augur("fix", session_id="B")
     assert "Session A" not in out and "Nothing to fix" in out
 
 
@@ -100,7 +100,7 @@ def test_panel_warns_when_labels_are_slow(make_app):
         turn(app, f"draft the pilot pricing tiers for VDRI v{i}", turn_id=f"t{i}")
     bad, total = app.health()
     assert (bad, total) == (10, 10)
-    assert "Pin a fast model" in Commands(app).bussola("", platform="telegram")
+    assert "Pin a fast model" in Commands(app).augur("", platform="telegram")
 
 
 def test_caption_mentions_parked_items_waiting(make_app):
@@ -121,7 +121,7 @@ def test_closed_store_never_reopens(make_app):
 
 
 def test_caption_plural_and_eval_cost_not_counted(make_app, clock):
-    from bussola import report
+    from augur import report
 
     app = make_app()
     for summary in ("a", "b"):
@@ -132,6 +132,6 @@ def test_caption_plural_and_eval_cost_not_counted(make_app, clock):
     stats = report.week_stats(app.store, clock())
     assert "1 needs you" in report.caption_lines(stats, "en")[0]
     app.evaluating = True
-    app.on_post_auxiliary_call(aux_task="bussola_classifier", usage={"total_tokens": 999})
+    app.on_post_auxiliary_call(aux_task="augur_classifier", usage={"total_tokens": 999})
     app.evaluating = False
     assert app.week().self_tokens == 0

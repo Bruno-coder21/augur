@@ -84,7 +84,7 @@ def load(store: Store, now: datetime) -> dict[str, int]:
         store.queue_add(summary, start + timedelta(days=1 + i), source="demo")
     for i, (summary, goal) in enumerate(CORRECTIONS):
         store.correction_add(summary, goal, start + timedelta(days=2 + i), source="demo")
-    store.self_cost_add("bussola_classifier", 1180, now - timedelta(hours=1), source="demo")
+    store.self_cost_add("augur_classifier", 1180, now - timedelta(hours=1), source="demo")
     week_start = iso(now - timedelta(days=7))
     insight.remember(store, f"demo:{week_start}", HIDDEN, pinned=True)
     return {"requests": len(REQUESTS), "parked": len(PARKED)}

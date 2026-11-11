@@ -17,11 +17,11 @@ from typing import Any, Callable, Optional
 import pytest
 
 REPO = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO.parent))  # the repo folder *is* the ``bussola`` package
+sys.path.insert(0, str(REPO.parent))  # the repo folder *is* the ``augur`` package
 
-import bussola  # noqa: E402
-from bussola.core import Bussola  # noqa: E402
-from bussola.store import Store  # noqa: E402
+import augur  # noqa: E402
+from augur.core import Augur  # noqa: E402
+from augur.store import Store  # noqa: E402
 
 
 @dataclass
@@ -57,7 +57,7 @@ class FakeLLM:
 @dataclass
 class FakeCron:
     job_id: str = "job1"
-    job_name: str = "Bussola Friday run"
+    job_name: str = "Augur Friday run"
     execution_id: str = "exec-1"
     source: str = "scheduler"
     scheduled_instant: Optional[str] = None
@@ -66,7 +66,7 @@ class FakeCron:
 
 
 class FakeCtx:
-    plugin_id = "bussola"
+    plugin_id = "augur"
     profile_name = "default"
 
     def __init__(self, llm: Optional[FakeLLM] = None, config: Optional[dict] = None):
@@ -164,7 +164,7 @@ def make_app(tmp_path, clock):
 
     def factory(responder=None, delay=0.0, config=None, goals=True, budget=1.5):
         ctx = FakeCtx(FakeLLM(responder, delay), config)
-        app = Bussola(ctx, store=Store(tmp_path / f"db{len(apps)}.sqlite"), data_dir=tmp_path / "data",
+        app = Augur(ctx, store=Store(tmp_path / f"db{len(apps)}.sqlite"), data_dir=tmp_path / "data",
                       clock=clock, budget=budget)
         app.store.migrate()
         if goals:
@@ -177,7 +177,7 @@ def make_app(tmp_path, clock):
         app.close()
 
 
-def turn(app: Bussola, message: str, session: str = "s1", turn_id: str = "t1", history: Optional[list] = None,
+def turn(app: Augur, message: str, session: str = "s1", turn_id: str = "t1", history: Optional[list] = None,
          drain: bool = True):
     out = app.on_pre_llm_call(
         session_id=session, user_message=message, conversation_history=history or [], is_first_turn=False,
@@ -188,4 +188,4 @@ def turn(app: Bussola, message: str, session: str = "s1", turn_id: str = "t1", h
     return out
 
 
-__all__ = ["bussola", "FakeCtx", "FakeLLM", "FakeOut", "FakeCron", "detour", "on_goal", "turn", "GOALS"]
+__all__ = ["augur", "FakeCtx", "FakeLLM", "FakeOut", "FakeCron", "detour", "on_goal", "turn", "GOALS"]

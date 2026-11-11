@@ -20,7 +20,7 @@ from . import classifier as clf
 from . import config, friday, insight, metering, nudge, privacy, report, strings
 from .store import Store, iso, parse_iso, utcnow
 
-log = logging.getLogger("bussola")
+log = logging.getLogger("augur")
 
 # Surfaces with nobody there to answer a question: never labeled, never nudged.
 UNATTENDED_PLATFORMS = frozenset({"cron", "kanban", "webhook", "webhooks", "api", "api_server", "batch", "scheduler"})
@@ -33,7 +33,7 @@ _ACK_RE = re.compile(
 HEALTH_WINDOW = 20
 
 
-class Bussola:
+class Augur:
     def __init__(
         self,
         ctx: Any,
@@ -129,7 +129,7 @@ class Bussola:
                     return None
             return self._pre_llm_call(session_id, user_message, conversation_history, turn_id, parent_session_id)
         except Exception as exc:
-            log.warning("bussola pre_llm_call skipped: %s", exc, exc_info=True)
+            log.warning("augur pre_llm_call skipped: %s", exc, exc_info=True)
             return None
 
     def _pre_llm_call(self, session_id, user_message, conversation_history, turn_id, parent_session_id):
@@ -252,7 +252,7 @@ class Bussola:
             self.store.update_turn(row, nudged=1, decision="do_now", decided_at=iso(self.clock()))
             state.notes[turn_id] = nudge.nudge_note(goals, result.closest_goal, self.lang())
         except Exception as exc:
-            log.debug("bussola late nudge skipped: %s", exc)
+            log.debug("augur late nudge skipped: %s", exc)
 
     def _record(
         self, row: int, result: Optional[clf.Result], previous: Optional[dict], source: str, session_id: str = ""
@@ -275,7 +275,7 @@ class Bussola:
 
     # ------------------------------------------------------------------ desktop chip
     def status(self, session_id: str = "") -> dict[str, Any]:
-        """Compact JSON for the Desktop status chip (RPC ``plugin.bussola.status``)."""
+        """Compact JSON for the Desktop status chip (RPC ``plugin.augur.status``)."""
         lang = self.lang()
         if not self.store.has_goals():
             return {"has_goals": False, "language": lang}
@@ -302,7 +302,7 @@ class Bussola:
         try:
             return self.status(str(sid))
         except Exception as exc:
-            log.warning("bussola status RPC failed: %s", exc)
+            log.warning("augur status RPC failed: %s", exc)
             return {"has_goals": False, "error": True}
 
     def _emit_status(self, session_id: str) -> None:
@@ -312,7 +312,7 @@ class Bussola:
         try:
             emit(session_id, "status.changed", self.status(session_id))
         except Exception as exc:  # no viewer, CLI session, cron: nothing to update
-            log.debug("bussola status emit skipped: %s", exc)
+            log.debug("augur status emit skipped: %s", exc)
 
     def on_post_llm_call(self, session_id: str = "", turn_id: str = "", **_: Any) -> None:
         try:
@@ -326,7 +326,7 @@ class Bussola:
                 self._decide(state, "do_now")
             state.clarify_turns.discard(turn_id)
         except Exception as exc:
-            log.warning("bussola post_llm_call skipped: %s", exc)
+            log.warning("augur post_llm_call skipped: %s", exc)
         return None
 
     def _decide(self, state: nudge.SessionState, decision: str) -> None:
@@ -341,17 +341,17 @@ class Bussola:
             if row is not None:
                 self.store.add_tokens(row, metering.usage_tokens(usage))
         except Exception as exc:
-            log.debug("bussola post_api_request skipped: %s", exc)
+            log.debug("augur post_api_request skipped: %s", exc)
         return None
 
     def on_post_auxiliary_call(self, aux_task: str = "", usage: Any = None, **_: Any) -> None:
         try:
-            if aux_task in metering.BUSSOLA_TASKS and not self.evaluating:  # the dev eval is not runtime cost
+            if aux_task in metering.AUGUR_TASKS and not self.evaluating:  # the dev eval is not runtime cost
                 tokens = metering.usage_tokens(usage)
                 if tokens:
                     self.store.self_cost_add(aux_task, tokens, self.clock())
         except Exception as exc:
-            log.debug("bussola post_auxiliary_call skipped: %s", exc)
+            log.debug("augur post_auxiliary_call skipped: %s", exc)
         return None
 
     def on_pre_tool_call(self, tool_name: str = "", args: Any = None, session_id: str = "", turn_id: str = "", **_: Any):
@@ -368,7 +368,7 @@ class Bussola:
                 return None
             return {"action": "block", "message": strings.t("friday_blocked", self.lang())}
         except Exception as exc:
-            log.warning("bussola guard error: %s", exc)
+            log.warning("augur guard error: %s", exc)
             if in_friday:  # unsure inside the Friday run: refuse rather than allow
                 return {"action": "block", "message": strings.t("friday_blocked", "en")}
             return None
@@ -386,7 +386,7 @@ class Bussola:
                 return None  # only a report built during *this* run is ever attached
             return friday.ensure_media(response_text, self.store.meta_get("last_report_path"))
         except Exception as exc:
-            log.warning("bussola transform skipped: %s", exc)
+            log.warning("augur transform skipped: %s", exc)
             return None
 
     # ------------------------------------------------------------------ shared actions

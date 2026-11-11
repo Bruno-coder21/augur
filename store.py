@@ -1,6 +1,6 @@
 """SQLite storage: numbered migrations, short idempotent writes, one lock.
 
-The database lives in ``plugin_data_dir("bussola")/data.db`` (via Hermes's
+The database lives in ``plugin_data_dir("augur")/data.db`` (via Hermes's
 ``plugin_db``) and follows the active profile. All user text stored here is
 already redacted and at most 60 characters (see ``privacy.py``).
 """
@@ -15,7 +15,7 @@ from typing import Any, Callable, Iterable, Optional
 
 from . import privacy
 
-PLUGIN_NAME = "bussola"
+PLUGIN_NAME = "augur"
 
 MIGRATIONS: list[tuple[int, str]] = [
     (
@@ -96,7 +96,7 @@ class Store:
     def conn(self) -> sqlite3.Connection:
         with self._lock:
             if self._closed:
-                raise RuntimeError("bussola store is closed (plugin unloaded)")
+                raise RuntimeError("augur store is closed (plugin unloaded)")
             if self._conn is None:
                 conn = self._connect()
                 conn.row_factory = sqlite3.Row

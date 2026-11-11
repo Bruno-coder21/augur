@@ -6,7 +6,7 @@ import time
 
 from conftest import FakeOut, detour, on_goal, turn
 
-from bussola import classifier as clf
+from augur import classifier as clf
 
 
 def test_slow_model_returns_none_fast_and_records_late_result(make_app):
@@ -15,7 +15,7 @@ def test_slow_model_returns_none_fast_and_records_late_result(make_app):
     def responder(kw):
         calls["n"] += 1
         if calls["n"] == 2:
-            time.sleep(5.0)  # the 2nd detour in a row: the only time Bussola holds the turn
+            time.sleep(5.0)  # the 2nd detour in a row: the only time Augur holds the turn
         return detour()
 
     app = make_app(responder, budget=1.5)
@@ -97,7 +97,7 @@ def test_prompt_uses_blocks_task_and_redacts(make_app):
                   {"role": "assistant", "content": "ok"},
                   {"role": "user", "content": "deploy with key sk-abcdefghijklmnopqrstuvwxyz123456 to the pilot"}])
     call = app.ctx.llm.calls[-1]
-    assert call["task"] == "bussola_classifier"
+    assert call["task"] == "augur_classifier"
     assert call["temperature"] == 0
     text = call["input"][0]["text"]
     assert "sk-abcdefghijklmnopqrstuvwxyz123456" not in text
@@ -107,7 +107,7 @@ def test_prompt_uses_blocks_task_and_redacts(make_app):
 
 def test_skips_slash_commands_subagents_cron_and_missing_goals(make_app):
     app = make_app(lambda kw: detour())
-    assert turn(app, "/bussola fix") is None
+    assert turn(app, "/augur fix") is None
     assert app.ctx.llm.calls == []
     assert app.on_pre_llm_call(session_id="s", user_message="plan a trip to Rome next spring",
                                turn_id="t", parent_session_id="parent") is None
@@ -135,7 +135,7 @@ def test_previous_user_messages_excludes_current_and_commands():
     history = [
         {"role": "user", "content": "first"},
         {"role": "assistant", "content": "a"},
-        {"role": "user", "content": "/bussola"},
+        {"role": "user", "content": "/augur"},
         {"role": "user", "content": "second"},
         {"role": "user", "content": [{"type": "text", "text": "third"}]},
         {"role": "user", "content": "current"},
@@ -145,7 +145,7 @@ def test_previous_user_messages_excludes_current_and_commands():
 
 def test_schemas_are_strict_mode_compatible():
     """Anthropic structured outputs reject objects without additionalProperties: false."""
-    from bussola import commands, insight
+    from augur import commands, insight
 
     def walk(node):
         if isinstance(node, dict):

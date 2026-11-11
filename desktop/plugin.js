@@ -1,9 +1,9 @@
 /**
- * Bussola status chip for Hermes Desktop.
+ * Augur status chip for Hermes Desktop.
  *
  * "🧭 Hackathons · 62% on goals" in the status bar; click for the week at a glance.
- * Data comes from the Python half: RPC `plugin.bussola.status` on load and focus
- * change, and the session event `plugin.bussola.status.changed` after every
+ * Data comes from the Python half: RPC `plugin.augur.status` on load and focus
+ * change, and the session event `plugin.augur.status.changed` after every
  * classified request. Plain ESM, no build step, SDK surface only.
  */
 
@@ -12,34 +12,34 @@ import {
 } from '@hermes/plugin-sdk'
 import { jsx, jsxs } from 'react/jsx-runtime'
 
-const ID = 'bussola'
+const ID = 'augur'
 // The same goal colors as the terminal panel and the PNG report (color-blind safe).
 const GOAL_COLORS = { 1: '#3B82F6', 2: '#F59E0B', 3: '#A855F7', 0: '#6B7280' }
 
 const EN = {
   onGoals: pct => `${pct}% on goals`,
   noGoals: 'Set your goals',
-  tip: 'Bussola: where your requests went this week',
+  tip: 'Augur: where your requests went this week',
   week: 'Last 7 days',
   detours: 'Detours',
   planned: planned => `planned ${planned}%`,
   queue: n => `Queue: ${n} parked`,
   hidden: (theme, count) => `Hidden priority: ${theme} (${count} requests)`,
-  setup: 'Type /bussola goals in the chat to set your 3 goals.',
-  more: 'Full panel: /bussola · report: /bussola report',
+  setup: 'Type /augur goals in the chat to set your 3 goals.',
+  more: 'Full panel: /augur · report: /augur report',
   demo: 'includes demo data'
 }
 const PT = {
   onGoals: pct => `${pct}% nas metas`,
   noGoals: 'Defina suas metas',
-  tip: 'Bússola: para onde foram seus pedidos nesta semana',
+  tip: 'Augur: para onde foram seus pedidos nesta semana',
   week: 'Últimos 7 dias',
   detours: 'Desvios',
   planned: planned => `planejado ${planned}%`,
   queue: n => `Fila: ${n} estacionados`,
   hidden: (theme, count) => `Prioridade oculta: ${theme} (${count} pedidos)`,
-  setup: 'Digite /bussola goals no chat para definir suas 3 metas.',
-  more: 'Painel completo: /bussola · relatório: /bussola report',
+  setup: 'Digite /augur goals no chat para definir suas 3 metas.',
+  more: 'Painel completo: /augur · relatório: /augur report',
   demo: 'inclui dados de demonstração'
 }
 
@@ -105,7 +105,7 @@ function Chip({ store }) {
 
 export default {
   id: ID,
-  name: 'Bussola',
+  name: 'Augur',
   description: 'Your week against your 3 goals, in the status bar.',
   register(ctx) {
     ctx.i18n.register({ en: { tip: EN.tip, noGoals: EN.noGoals }, pt: { tip: PT.tip, noGoals: PT.noGoals } })
@@ -114,14 +114,14 @@ export default {
     const refresh = async () => {
       try {
         const session_id = host.state.focusedSessionId.get()
-        const status = await host.request('plugin.bussola.status', session_id ? { session_id } : {})
+        const status = await host.request('plugin.augur.status', session_id ? { session_id } : {})
         if (status && typeof status === 'object') store.set(status)
       } catch {
-        // gateway without plugin RPC, or Bussola disabled: keep the last value
+        // gateway without plugin RPC, or Augur disabled: keep the last value
       }
     }
 
-    ctx.onEvent('plugin.bussola.status.changed', event => {
+    ctx.onEvent('plugin.augur.status.changed', event => {
       const payload = event && event.payload
       if (payload && typeof payload === 'object') store.set(payload)
     })

@@ -1,8 +1,8 @@
 """The Friday run: an ordinary cron job that clears the Queue, read-and-draft only.
 
-* ``register_blueprint`` adds ``/blueprint bussola:friday`` (time, day, deliver).
-* ``FridayRuns`` remembers which cron executions are Bussola's (by the marker in the prompt).
-* ``guard`` is the ``pre_tool_call`` policy for those executions only: Bussola's own
+* ``register_blueprint`` adds ``/blueprint augur:friday`` (time, day, deliver).
+* ``FridayRuns`` remembers which cron executions are Augur's (by the marker in the prompt).
+* ``guard`` is the ``pre_tool_call`` policy for those executions only: Augur's own
   tools, a short list of read/search tools, and file writes inside ``drafts/``.
   Everything else is blocked, so anything needing approval becomes "needs you".
 * ``ensure_media`` makes sure the final reply carries the report's ``MEDIA:`` line.
@@ -17,27 +17,27 @@ from collections import deque
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-MARKER = "[bussola:friday]"
+MARKER = "[augur:friday]"
 BLUEPRINT_KEY = "friday"
 
 READ_TOOLS = frozenset({"read_file", "search_files", "web_search", "web_extract"})
 WRITE_TOOLS = frozenset({"write_file", "patch"})
-OWN_PREFIX = "bussola_"
+OWN_PREFIX = "augur_"
 
 _V4A_SINGLE = re.compile(r"^\*\*\*\s*(?:Update|Add|Delete)\s+File:\s*(.+)$", re.MULTILINE)
 _V4A_MOVE = re.compile(r"^\*\*\*\s*Move\s+File:\s*(.+?)\s*->\s*(.+)$", re.MULTILINE)
 
 PROMPT = (
-    MARKER + " Bussola Friday run. You are clearing the user's Queue of parked detours. "
+    MARKER + " Augur Friday run. You are clearing the user's Queue of parked detours. "
     "This run is read-and-draft only: never send, post, buy, delete, schedule or change anything.\n"
-    "1. Call bussola_queue to list the parked items. It also returns drafts_dir.\n"
+    "1. Call augur_queue to list the parked items. It also returns drafts_dir.\n"
     "2. For each item, do only research, reading or drafting. Save any draft as a file inside drafts_dir "
     "(write_file with an absolute path in drafts_dir).\n"
-    "3. Close each item with bussola_done: status \"done\" when the research or draft is ready "
+    "3. Close each item with augur_done: status \"done\" when the research or draft is ready "
     "(result_line says what is ready, draft_path when you wrote one), or \"needs_you\" when it needs "
     "the user's approval, a decision, a login, sending a message or any action outside reading and drafting "
     "(result_line says why in one line). If a tool is blocked, mark the item needs_you and move on.\n"
-    "4. Call bussola_report. Your final answer is exactly the caption lines it returns, then its MEDIA line."
+    "4. Call augur_report. Your final answer is exactly the caption lines it returns, then its MEDIA line."
 )
 
 SLOTS = [
@@ -77,11 +77,11 @@ def register_blueprint(ctx: Any) -> None:
     )
 
 
-TITLE = "Bussola Friday run"
+TITLE = "Augur Friday run"
 
 
 class FridayRuns:
-    """Which cron executions are Bussola's Friday run.
+    """Which cron executions are Augur's Friday run.
 
     A run is recognised by any of: its execution id was seen with the marker in
     ``pre_llm_call``; its job id was seen with the marker before (persisted, so a

@@ -1,6 +1,6 @@
 """Classify one user request against the week's 3 goals.
 
-One structured call through the ``bussola_classifier`` auxiliary task, at
+One structured call through the ``augur_classifier`` auxiliary task, at
 temperature 0, behind a hard 1.5 s budget. Anything unexpected (timeout,
 exception, invalid JSON, low confidence) means silence: the caller gets
 ``None`` and the turn goes on untouched.
@@ -18,9 +18,9 @@ from typing import Any, Callable, Optional
 
 from . import privacy
 
-log = logging.getLogger("bussola.classifier")
+log = logging.getLogger("augur.classifier")
 
-TASK = "bussola_classifier"
+TASK = "augur_classifier"
 PROMPT_VERSION = "v2"
 BUDGET_SECONDS = 1.5
 CALL_TIMEOUT_SECONDS = 20
@@ -159,7 +159,7 @@ class Classifier:
     def __init__(self, llm_getter: Callable[[], Any], budget: float = BUDGET_SECONDS, workers: int = 4):
         self._llm_getter = llm_getter
         self.budget = budget
-        self._executor = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="bussola-clf")
+        self._executor = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="augur-clf")
         self._inflight = threading.BoundedSemaphore(workers * 2)
         self._pending: set[Future] = set()
         self._pending_lock = threading.Lock()
@@ -173,15 +173,15 @@ class Classifier:
                 instructions=INSTRUCTIONS,
                 input=build_input(goals, corrections, history, message),
                 json_schema=SCHEMA,
-                schema_name="bussola_label",
+                schema_name="augur_label",
                 temperature=0,
                 max_tokens=MAX_TOKENS,
                 timeout=CALL_TIMEOUT_SECONDS,
-                purpose="bussola: label a request against the weekly goals",
+                purpose="augur: label a request against the weekly goals",
                 task=TASK,
             )
         except Exception as exc:  # provider error, schema mismatch, trust error...
-            log.info("bussola classifier call failed: %s: %.300s", type(exc).__name__, exc)
+            log.info("augur classifier call failed: %s: %.300s", type(exc).__name__, exc)
             return None
         latency = time.monotonic() - started
         return parse(getattr(out, "parsed", None), latency, _usage_tokens(getattr(out, "usage", None)))
@@ -250,4 +250,4 @@ def _deliver_late(future: Future, on_late: Callable[[Optional[Result]], None]) -
     try:
         on_late(future.result())
     except Exception as exc:
-        log.info("bussola late classification dropped: %s", type(exc).__name__)
+        log.info("augur late classification dropped: %s", type(exc).__name__)

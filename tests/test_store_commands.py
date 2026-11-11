@@ -7,11 +7,11 @@ import sqlite3
 
 from conftest import detour, on_goal, turn
 
-from bussola import commands as cmd_mod
-from bussola import demo
-from bussola.commands import Commands
-from bussola.store import Store
-from bussola.tools import make_handlers
+from augur import commands as cmd_mod
+from augur import demo
+from augur.commands import Commands
+from augur.store import Store
+from augur.tools import make_handlers
 
 
 # ---------------------------------------------------------------- storage
@@ -35,7 +35,7 @@ def test_nothing_longer_than_60_chars_of_user_text_is_stored(make_app, tmp_path)
     app = make_app(lambda kw: detour(summary="x" * 300))
     turn(app, long_message, turn_id="a")
     turn(app, long_message, turn_id="b")
-    make_handlers(app)["bussola_park"]({"summary": long_message}, session_id="s1")
+    make_handlers(app)["augur_park"]({"summary": long_message}, session_id="s1")
     Commands(app).park(long_message)
     app.store.correction_add(long_message, 1, app.clock())
     conn = sqlite3.connect(tmp_path / "db0.sqlite")
@@ -69,7 +69,7 @@ def test_parse_goals_variants():
 
 def test_goals_inline_with_split(make_app):
     app = make_app(goals=False)
-    out = Commands(app).bussola('goals "VDRI launch" "Hackathons" "English" 50/30/20')
+    out = Commands(app).augur('goals "VDRI launch" "Hackathons" "English" 50/30/20')
     assert "Goals saved" in out
     assert [g["planned_pct"] for g in app.store.goals()] == [50, 30, 20]
     assert app.ctx.asked == []
@@ -78,7 +78,7 @@ def test_goals_inline_with_split(make_app):
 def test_goals_ask_split_with_buttons(make_app):
     app = make_app(goals=False)
     app.ctx.choices = ["40/40/20"]
-    out = Commands(app).bussola("goals launching VDRI, hackathons, English")
+    out = Commands(app).augur("goals launching VDRI, hackathons, English")
     assert "Goals saved" in out
     question, choices = app.ctx.asked[0]
     assert "Launching VDRI" in question and len(choices) == 4
@@ -87,7 +87,7 @@ def test_goals_ask_split_with_buttons(make_app):
 
 def test_goals_cancel_or_no_buttons_saves_nothing(make_app):
     app = make_app(goals=False)
-    out = Commands(app).bussola("goals launching VDRI, hackathons, English")
+    out = Commands(app).augur("goals launching VDRI, hackathons, English")
     assert "not saved" in out and not app.store.has_goals()
 
 
@@ -96,24 +96,24 @@ def test_goals_free_text_uses_model_extraction(make_app):
                            {"name": "Hackathon", "description": "plugin"},
                            {"name": "English", "description": "practice"}]}
     app = make_app(lambda kw: extracted, goals=False)
-    out = Commands(app).bussola("goals this week I mostly want to launch VDRI then the hackathon plus english 50/30/20")
+    out = Commands(app).augur("goals this week I mostly want to launch VDRI then the hackathon plus english 50/30/20")
     assert "Goals saved" in out
-    assert app.ctx.llm.calls[-1]["task"] == "bussola_classifier"
+    assert app.ctx.llm.calls[-1]["task"] == "augur_classifier"
 
 
 def test_goals_bad_split(make_app):
     app = make_app(goals=False)
-    assert "add up to 100" in Commands(app).bussola("goals a, b, c 50/30/30")
+    assert "add up to 100" in Commands(app).augur("goals a, b, c 50/30/30")
 
 
 def test_panel_onboarding_then_panel(make_app):
     app = make_app(goals=False)
-    assert "/bussola goals" in Commands(app).bussola("")
+    assert "/augur goals" in Commands(app).augur("")
     demo.load(app.store, app.clock())
-    text = Commands(app).bussola("", platform="telegram")
+    text = Commands(app).augur("", platform="telegram")
     assert "VDRI launch" in text and "24%" in text and "\x1b[" not in text
     assert "Hidden priority" in text
-    colored = Commands(app).bussola("", platform="cli")
+    colored = Commands(app).augur("", platform="cli")
     assert "\x1b[38;2;59;130;246m" in colored  # goal 1 blue
 
 
@@ -124,7 +124,7 @@ def test_fix_records_correction_used_in_next_prompt(make_app):
     app = make_app(lambda kw: detour(summary="Tune Hermes plugin docs"))
     turn(app, "polish the docs page for my Hermes plugin", turn_id="a")
     app.ctx.choices = ["2"]
-    out = Commands(app).bussola("fix", session_id="s1")
+    out = Commands(app).augur("fix", session_id="s1")
     assert "Hackathons" in out
     assert app.store.get_turn(1)["goal"] == 2
     turn(app, "polish the README for my Hermes plugin", turn_id="b")
@@ -134,9 +134,9 @@ def test_fix_records_correction_used_in_next_prompt(make_app):
 
 def test_fix_inline_and_nothing_to_fix(make_app):
     app = make_app(lambda kw: on_goal(1))
-    assert "Nothing to fix" in Commands(app).bussola("fix")
+    assert "Nothing to fix" in Commands(app).augur("fix")
     turn(app, "draft the pilot pricing tiers for VDRI")
-    assert "Detour" in Commands(app).bussola("fix detour")
+    assert "Detour" in Commands(app).augur("fix detour")
     assert app.store.get_turn(1)["goal"] == 0
 
 
@@ -145,20 +145,20 @@ def test_fix_inline_and_nothing_to_fix(make_app):
 
 def test_pause_and_resume(make_app):
     app = make_app()
-    assert "paused until" in Commands(app).bussola("pause 2h")
+    assert "paused until" in Commands(app).augur("pause 2h")
     assert app.paused_until() is not None
-    assert "back on" in Commands(app).bussola("pause off")
+    assert "back on" in Commands(app).augur("pause off")
     assert app.paused_until() is None
-    assert "Usage" in Commands(app).bussola("pause forever")
+    assert "Usage" in Commands(app).augur("pause forever")
 
 
 def test_demo_load_and_clear_keeps_real_data(make_app):
     app = make_app(lambda kw: on_goal(1))
     turn(app, "draft the pilot pricing tiers for VDRI")
-    out = Commands(app).bussola("demo")
+    out = Commands(app).augur("demo")
     assert "45 requests" in out and "kept" in out
     assert app.ctx.llm.calls.__len__() == 1  # demo made no model call
-    Commands(app).bussola("demo clear")
+    Commands(app).augur("demo clear")
     assert not app.store.has_demo()
     assert app.store.has_goals() and app.store.get_turn(1)["goal"] == 1
 
@@ -173,15 +173,15 @@ def test_park_command(make_app):
 def test_report_command_media_only_on_messaging(make_app, monkeypatch):
     app = make_app()
     monkeypatch.setattr(app, "build_report", lambda: {"path": "/tmp/r.png", "caption": "cap", "text": "t"})
-    assert "MEDIA:/tmp/r.png" in Commands(app).bussola("report", platform="telegram")
-    assert "MEDIA:" not in Commands(app).bussola("report", platform="cli")
+    assert "MEDIA:/tmp/r.png" in Commands(app).augur("report", platform="telegram")
+    assert "MEDIA:" not in Commands(app).augur("report", platform="cli")
 
 
 def test_commands_never_raise(make_app, monkeypatch):
     app = make_app()
     monkeypatch.setattr(app, "week", lambda: (_ for _ in ()).throw(RuntimeError("x")))
-    assert "went wrong" in Commands(app).bussola("")
-    assert "commands" in Commands(app).bussola("nonsense").lower()
+    assert "went wrong" in Commands(app).augur("")
+    assert "commands" in Commands(app).augur("nonsense").lower()
 
 
 # ---------------------------------------------------------------- tools
@@ -190,21 +190,21 @@ def test_commands_never_raise(make_app, monkeypatch):
 def test_tools_queue_done_and_errors(make_app):
     app = make_app()
     h = make_handlers(app)
-    assert json.loads(h["bussola_park"]({}))["ok"] is False
-    pid = json.loads(h["bussola_park"]({"summary": "Research standing desks"}))["id"]
-    q = json.loads(h["bussola_queue"]({}))
+    assert json.loads(h["augur_park"]({}))["ok"] is False
+    pid = json.loads(h["augur_park"]({"summary": "Research standing desks"}))["id"]
+    q = json.loads(h["augur_queue"]({}))
     assert q["items"][0]["summary"] == "Research standing desks" and q["drafts_dir"].endswith("drafts")
     draft = app.drafts_dir / "desks.md"
     draft.write_text("# desks")
-    done = json.loads(h["bussola_done"]({"id": pid, "status": "done", "result_line": "3 desks compared",
+    done = json.loads(h["augur_done"]({"id": pid, "status": "done", "result_line": "3 desks compared",
                                          "draft_path": str(draft)}))
     assert done["ok"] and done["remaining"] == 0
-    bad = json.loads(h["bussola_done"]({"id": pid, "status": "done", "result_line": "x",
+    bad = json.loads(h["augur_done"]({"id": pid, "status": "done", "result_line": "x",
                                         "draft_path": "/etc/passwd"}))
     assert bad["ok"] is False
-    assert json.loads(h["bussola_done"]({"id": 999, "status": "done", "result_line": "x"}))["ok"] is False
-    assert json.loads(h["bussola_done"]({"id": pid, "status": "parked", "result_line": "x"}))["ok"] is False
-    assert json.loads(h["bussola_queue"]("not a dict"))["ok"] is True
+    assert json.loads(h["augur_done"]({"id": 999, "status": "done", "result_line": "x"}))["ok"] is False
+    assert json.loads(h["augur_done"]({"id": pid, "status": "parked", "result_line": "x"}))["ok"] is False
+    assert json.loads(h["augur_queue"]("not a dict"))["ok"] is True
 
 
 # ---------------------------------------------------------------- desktop chip

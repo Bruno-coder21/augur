@@ -1,7 +1,7 @@
 """Hidden priority: a 4th goal the user keeps working on without declaring it.
 
 Runs only while building the weekly report, as one call through the
-``bussola_insight`` auxiliary task, and only shows when 5 or more of the
+``augur_insight`` auxiliary task, and only shows when 5 or more of the
 week's detours share a theme. The result is cached per week so the report,
 the panel and the Friday run never pay twice.
 """
@@ -14,9 +14,9 @@ from typing import Any, Callable, Optional
 
 from . import privacy
 
-log = logging.getLogger("bussola.insight")
+log = logging.getLogger("augur.insight")
 
-TASK = "bussola_insight"
+TASK = "augur_insight"
 MIN_COUNT = 5
 
 SCHEMA: dict[str, Any] = {
@@ -63,15 +63,15 @@ def find(
             instructions=INSTRUCTIONS,
             input=[{"type": "text", "text": "\n".join(lines)}],
             json_schema=SCHEMA,
-            schema_name="bussola_hidden_priority",
+            schema_name="augur_hidden_priority",
             temperature=0,
             max_tokens=200,
             timeout=30,
-            purpose="bussola: find a recurring theme in the week's detours",
+            purpose="augur: find a recurring theme in the week's detours",
             task=TASK,
         )
     except Exception as exc:
-        log.info("bussola insight call failed: %s: %.300s", type(exc).__name__, exc)
+        log.info("augur insight call failed: %s: %.300s", type(exc).__name__, exc)
         return None
     return validate(getattr(out, "parsed", None), len(detours))
 

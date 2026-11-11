@@ -9,8 +9,8 @@ from datetime import timedelta
 import pytest
 from conftest import FakeOut, turn
 
-from bussola import demo, insight, metering, report
-from bussola.tools import make_handlers
+from augur import demo, insight, metering, report
+from augur.tools import make_handlers
 
 
 def _week(app, clock):
@@ -51,7 +51,7 @@ def test_text_fallback_without_matplotlib(make_app, clock, monkeypatch):
         return real_import(name, *args, **kwargs)
 
     monkeypatch.setattr(builtins, "__import__", no_mpl)
-    out = json.loads(make_handlers(app)["bussola_report"]({}))
+    out = json.loads(make_handlers(app)["augur_report"]({}))
     assert out["ok"] and "path" not in out
     assert "detours" in out["text"] and "VDRI launch" in out["text"]
 
@@ -80,7 +80,7 @@ def test_hidden_priority_needs_five(make_app, clock):
     _detours(app, clock, 1)
     out = app.build_report()
     assert "Hidden priority spotted: \"VDRI website\"" in out["caption"]
-    assert app.ctx.llm.calls[-1]["task"] == "bussola_insight"
+    assert app.ctx.llm.calls[-1]["task"] == "augur_insight"
     calls = len(app.ctx.llm.calls)
     app.build_report()
     assert len(app.ctx.llm.calls) == calls  # cached for the same week and detours
@@ -108,9 +108,9 @@ def test_tokens_land_on_the_turn_and_self_cost_is_recorded(make_app):
     app.on_post_api_request(session_id="s1", turn_id="t9", usage={"prompt_tokens": 1000, "completion_tokens": 200})
     app.on_post_api_request(session_id="s1", turn_id="t9", usage={"input_tokens": 300, "output_tokens": 50})
     assert app.store.get_turn(1)["tokens"] == 1550
-    app.on_post_auxiliary_call(aux_task="bussola_classifier", usage={"input_tokens": 100, "output_tokens": 20})
+    app.on_post_auxiliary_call(aux_task="augur_classifier", usage={"input_tokens": 100, "output_tokens": 20})
     app.on_post_auxiliary_call(aux_task="compression", usage={"input_tokens": 999, "output_tokens": 1})
-    app.on_post_auxiliary_call(aux_task="bussola_insight", usage=None, error="timeout")
+    app.on_post_auxiliary_call(aux_task="augur_insight", usage=None, error="timeout")
     stats = app.week()
     assert stats.self_tokens == 120
 
@@ -128,5 +128,5 @@ def test_report_tool_returns_media_line(make_app, clock):
     pytest.importorskip("matplotlib")
     app = make_app(lambda kw: FakeOut(parsed=None))
     demo.load(app.store, clock())
-    out = json.loads(make_handlers(app)["bussola_report"]({}))
+    out = json.loads(make_handlers(app)["augur_report"]({}))
     assert out["media_line"] == f"MEDIA:{out['path']}"

@@ -18,7 +18,7 @@ def test_second_detour_in_a_row_nudges_without_blocking(make_app):
     assert set(out) == {"context"}  # never {"action": "block"}
     assert "Do it now" in out["context"] and "Park it" in out["context"]
     assert "Hackathons" in out["context"]  # closest goal named
-    assert "bussola_park" in out["context"]
+    assert "augur_park" in out["context"]
     assert app.store.get_turn(2)["nudged"] == 1
 
 
@@ -85,9 +85,9 @@ def test_park_tool_records_park(make_app):
     app.on_pre_tool_call(tool_name="clarify", args={}, session_id="s1", turn_id="b")
     import json
 
-    from bussola.tools import make_handlers
+    from augur.tools import make_handlers
 
-    out = json.loads(make_handlers(app)["bussola_park"]({"summary": "Dinner party playlist"}, session_id="s1"))
+    out = json.loads(make_handlers(app)["augur_park"]({"summary": "Dinner party playlist"}, session_id="s1"))
     assert out["ok"] and out["queue_size"] == 1
     app.on_post_llm_call(session_id="s1", turn_id="b")
     assert app.store.get_turn(2)["decision"] == "park"

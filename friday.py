@@ -63,7 +63,7 @@ SLOTS = [
 def register_blueprint(ctx: Any) -> None:
     ctx.register_automation_blueprint(
         BLUEPRINT_KEY,
-        title="Bussola Friday run",
+        title=TITLE,
         description=(
             "Every week, research and draft the detours you parked, mark what needs you, "
             "and send the weekly attention report."
@@ -77,11 +77,26 @@ def register_blueprint(ctx: Any) -> None:
     )
 
 
-class FridayRuns:
-    """Execution ids of running Friday jobs (bounded; cron identity is a ContextVar)."""
+TITLE = "Bussola Friday run"
 
-    def __init__(self, cron_lookup: Callable[[], Any], maxlen: int = 32):
+
+class FridayRuns:
+    """Which cron executions are Bussola's Friday run.
+
+    A run is recognised by any of: its execution id was seen with the marker in
+    ``pre_llm_call``; its job id was seen with the marker before (persisted, so a
+    reload or a skipped hook does not disarm the guard); or its job name is the
+    blueprint's title. Cron identity itself is a ContextVar read per call.
+    """
+
+    def __init__(
+        self,
+        cron_lookup: Callable[[], Any],
+        known_jobs: Callable[[], set[str]] = lambda: set(),
+        maxlen: int = 32,
+    ):
         self._cron_lookup = cron_lookup
+        self._known_jobs = known_jobs
         self._ids: deque[str] = deque(maxlen=maxlen)
         self._lock = threading.Lock()
 
@@ -96,13 +111,24 @@ class FridayRuns:
             if execution_id and execution_id not in self._ids:
                 self._ids.append(execution_id)
 
-    def active(self) -> bool:
-        run = self.current()
+    def is_friday(self, run: Any) -> bool:
         if run is None:
             return False
         execution_id = getattr(run, "execution_id", None)
         with self._lock:
-            return bool(execution_id) and execution_id in self._ids
+            if execution_id and execution_id in self._ids:
+                return True
+        if str(getattr(run, "job_name", "") or "").strip() == TITLE:
+            return True
+        job_id = getattr(run, "job_id", None)
+        return bool(job_id) and str(job_id) in self._known_jobs()
+
+    def active(self) -> bool:
+        return self.is_friday(self.current())
+
+    def execution_id(self) -> Optional[str]:
+        run = self.current()
+        return getattr(run, "execution_id", None) if self.is_friday(run) else None
 
 
 def _agent_cwd() -> Path:

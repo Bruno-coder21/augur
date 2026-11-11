@@ -1,0 +1,17 @@
+{
+  "founder": [
+    {"slot": 1, "name": "VDRI launch", "description": "VDRI launch: pilot customers, pricing and the investor deck"},
+    {"slot": 2, "name": "Hackathons", "description": "Hackathons: build and submit a Hermes Agent plugin for the Nous Research hackathon"},
+    {"slot": 3, "name": "English", "description": "English: daily speaking and writing practice"}
+  ],
+  "developer": [
+    {"slot": 1, "name": "Payments API", "description": "Payments API: migrate the company's billing service to the new payments provider"},
+    {"slot": 2, "name": "Open source", "description": "Open source: maintain 'tidy', my Rust command-line tool (issues, releases, docs)"},
+    {"slot": 3, "name": "Fitness", "description": "Fitness: follow a running plan for a 10k race in December"}
+  ],
+  "student": [
+    {"slot": 1, "name": "Thesis", "description": "Thesis: master's thesis on urban heat islands, data analysis in Python"},
+    {"slot": 2, "name": "Calculus exam", "description": "Calculus exam: integrals and series, exam on December 2"},
+    {"slot": 3, "name": "Job hunt", "description": "Job hunt: internship applications, CV and interview prep"}
+  ]
+}

@@ -205,3 +205,21 @@ def test_tools_queue_done_and_errors(make_app):
     assert json.loads(h["bussola_done"]({"id": 999, "status": "done", "result_line": "x"}))["ok"] is False
     assert json.loads(h["bussola_done"]({"id": pid, "status": "parked", "result_line": "x"}))["ok"] is False
     assert json.loads(h["bussola_queue"]("not a dict"))["ok"] is True
+
+
+# ---------------------------------------------------------------- desktop chip
+
+
+def test_status_rpc_and_emit(make_app):
+    app = make_app(lambda kw: on_goal(2))
+    assert app.rpc_status({}, session_id="s1")["on_goals_pct"] == 0
+    turn(app, "write the pytest tests for the classifier")
+    status = app.rpc_status({"session_id": "s1"})
+    assert status["current_goal"] == "Hackathons" and status["on_goals_pct"] == 100
+    sid, event, payload = app.ctx.emitted[-1]
+    assert (sid, event) == ("s1", "status.changed") and payload["current_goal"] == "Hackathons"
+    import json
+
+    json.dumps(status)  # JSON-safe for the RPC wire
+    bare = make_app(goals=False)
+    assert bare.rpc_status({}) == {"has_goals": False, "language": "en"}

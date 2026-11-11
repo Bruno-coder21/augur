@@ -131,11 +131,11 @@ class Bussola:
             self.store.corrections_recent(8),
             clf.previous_user_messages(conversation_history),
             message,
-            on_late=lambda late: self._record(row, late, recent_prev, source="background"),
+            on_late=lambda late: self._record(row, late, recent_prev, source="background", session_id=session_id),
         )
         if result is None:
             return None
-        goal = self._record(row, result, recent_prev, source="live")
+        goal = self._record(row, result, recent_prev, source="live", session_id=session_id)
         if goal is None or answering:
             return None
         if not nudge.should_nudge(
@@ -154,7 +154,9 @@ class Bussola:
         state.pending_row, state.pending_turn, state.answer_turn = row, turn_id, None
         return {"context": nudge.nudge_context(goals, result.closest_goal, self.lang())}
 
-    def _record(self, row: int, result: Optional[clf.Result], previous: Optional[dict], source: str) -> Optional[int]:
+    def _record(
+        self, row: int, result: Optional[clf.Result], previous: Optional[dict], source: str, session_id: str = ""
+    ) -> Optional[int]:
         """Store a classification; returns the goal it counts toward (None = not counted)."""
         if result is None:
             return None
@@ -168,7 +170,49 @@ class Bussola:
         if result.summary60:
             fields["summary60"] = result.summary60
         self.store.update_turn(row, **fields)
+        self._emit_status(session_id)
         return goal
+
+    # ------------------------------------------------------------------ desktop chip
+    def status(self, session_id: str = "") -> dict[str, Any]:
+        """Compact JSON for the Desktop status chip (RPC ``plugin.bussola.status``)."""
+        lang = self.lang()
+        if not self.store.has_goals():
+            return {"has_goals": False, "language": lang}
+        stats = self.week()
+        names = {r.slot: r.name for r in stats.rows}
+        last = self.store.last_classified(session_id or None)
+        current = None
+        if last is not None and last["goal"] is not None:
+            current = names.get(int(last["goal"]))
+        return {
+            "has_goals": True,
+            "language": lang,
+            "current_goal": current,
+            "on_goals_pct": (100 - stats.detour_pct) if stats.counted else 0,
+            "counted": stats.counted,
+            "rows": [{"slot": r.slot, "name": r.name, "pct": r.pct, "planned": r.planned} for r in stats.rows],
+            "parked": stats.parked,
+            "hidden": stats.hidden,
+            "has_demo": stats.has_demo,
+        }
+
+    def rpc_status(self, params: Any = None, *, session_id: str = "", **_: Any) -> dict[str, Any]:
+        sid = session_id or (params.get("session_id") if isinstance(params, dict) else "") or ""
+        try:
+            return self.status(str(sid))
+        except Exception as exc:
+            log.warning("bussola status RPC failed: %s", exc)
+            return {"has_goals": False, "error": True}
+
+    def _emit_status(self, session_id: str) -> None:
+        emit = getattr(self.ctx, "emit_to_session", None)
+        if not session_id or emit is None:
+            return
+        try:
+            emit(session_id, "status.changed", self.status(session_id))
+        except Exception as exc:  # no viewer, CLI session, cron: nothing to update
+            log.debug("bussola status emit skipped: %s", exc)
 
     def on_post_llm_call(self, session_id: str = "", turn_id: str = "", **_: Any) -> None:
         try:

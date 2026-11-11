@@ -117,6 +117,15 @@ class FakeCtx:
     def on_unload(self, callback):
         self.unload.append(callback)
 
+    def register_rpc(self, name, handler):
+        self.rpcs = getattr(self, "rpcs", {})
+        self.rpcs[name] = handler
+
+    def emit_to_session(self, session_id, event, payload=None):
+        self.emitted = getattr(self, "emitted", [])
+        self.emitted.append((session_id, event, payload))
+        return True
+
 
 def detour(conf: float = 0.9, closest: int = 1, cont: bool = False, summary: str = "a detour") -> dict:
     return {"goal": 0, "confidence": conf, "continues_previous": cont, "closest_goal": closest, "summary60": summary}

@@ -75,6 +75,12 @@ def register(ctx):
     ctx.register_command("park", commands.park, description="Park a detour for the Friday run", args_hint="<text>")
 
     friday.register_blueprint(ctx)
+
+    # Desktop status chip (desktop/plugin.js) reads this; other surfaces ignore it.
+    try:
+        ctx.register_rpc("status", app.rpc_status)
+    except AttributeError:  # hosts without plugin RPC
+        pass
     try:
         ctx.on_unload(app.close)
     except AttributeError:  # older hosts without unload callbacks

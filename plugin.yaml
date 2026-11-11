@@ -1,0 +1,36 @@
+name: bussola
+version: "0.1.0"
+manifest_version: 2
+api_version: 1
+license: MIT
+author: Bruno Verona
+homepage: https://github.com/bverona/bussola
+description: Your agent knows your 3 priorities, notices drift, parks detours and clears them on Friday.
+tags: [productivity, focus, telegram, cron]
+requires_hermes: ">=0.23.1"
+provides_tools: [bussola_park, bussola_queue, bussola_done, bussola_report]
+provides_hooks: [pre_llm_call, post_llm_call, post_api_request, post_auxiliary_call, pre_tool_call, transform_llm_output]
+python_dependencies:
+  - "matplotlib>=3.8,<4"
+config_schema:
+  language:
+    type: str
+    choices: [en, pt]
+    default: en
+    label: Language
+    description: Language of every Bussola message, panel and report.
+  max_nudges_per_day:
+    type: int
+    default: 3
+    label: Max nudges per day
+    description: Bussola stays quiet after this many nudges in a day.
+  nudge_cooldown_minutes:
+    type: int
+    default: 45
+    label: Quiet time after "Do it now" (minutes)
+    description: After you choose "Do it now", no nudge in that session for this long.
+  min_confidence:
+    type: float
+    default: 0.6
+    label: Minimum classifier confidence
+    description: Below this, a request is not counted and never nudged.

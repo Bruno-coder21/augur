@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
+from datetime import timedelta
 from typing import Any, Optional
 
 from . import demo, panel, privacy, strings
@@ -118,6 +120,8 @@ class Commands:
                 return self.pause(rest, lang)
             if head == "demo":
                 return self.demo(rest, lang)
+            if head in ("queue", "fila"):
+                return self.queue(lang)
             if head == "report":
                 return self.report(platform, lang)
             if head == "eval" and (platform or "").lower() in LOCAL_SURFACES:
@@ -286,6 +290,28 @@ class Commands:
         if had_goals:
             msg += "\n" + strings.t("demo_kept_goals", lang)
         return msg
+
+    # -- queue --------------------------------------------------------------------
+    def queue(self, lang: str) -> str:
+        store = self.app.store
+        now = self.app.clock()
+        parked = store.queue_list("parked", limit=15)
+        closed = store.queue_closed_between(now - timedelta(days=7), now + timedelta(seconds=1))
+        if not parked and not closed:
+            return strings.t("queue_empty", lang)
+        marks = {"done": "✓", "needs_you": "●", "dropped": "✗"}
+        lines = [strings.t("queue_parked", lang, n=store.queue_size())]
+        lines += [f"  #{q['id']} {privacy.inert(q['summary60'])}" for q in parked]
+        if closed:
+            lines += ["", strings.t("queue_closed", lang)]
+            for q in closed:
+                line = f"  {marks.get(q['status'], '·')} {privacy.inert(q['summary60'])}"
+                if q.get("result_line"):
+                    line += f" — {privacy.inert(q['result_line'])}"
+                if q.get("draft_path"):
+                    line += f" ({strings.t('queue_draft', lang, name=privacy.inert(os.path.basename(q['draft_path'])))})"
+                lines.append(line)
+        return "\n".join(lines)
 
     # -- report -------------------------------------------------------------------
     def report(self, platform: str, lang: str) -> str:

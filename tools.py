@@ -57,6 +57,7 @@ def make_handlers(app: Any) -> dict[str, Callable[..., str]]:
                     "status": q["status"],
                     "age_days": max(0, (now - parse_iso(q["ts"])).days),
                     **({"result_line": q["result_line"]} if q.get("result_line") else {}),
+                    **({"draft_file": os.path.basename(q["draft_path"])} if q.get("draft_path") else {}),
                 }
                 for q in items
             ],

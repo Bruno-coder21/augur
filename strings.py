@@ -116,15 +116,20 @@ STRINGS: dict[str, dict[str, str]] = {
         "error": "🧭 Something went wrong, so Augur stayed out of the way. Details are in the Hermes log.",
         "help": (
             "🧭 Augur commands\n"
-            "  /augur              your week at a glance\n"
-            "  /augur goals ...    set your 3 goals\n"
-            "  /augur fix          correct the last classification\n"
-            "  /augur pause 2h     pause (or: off)\n"
-            "  /augur report       weekly report image now\n"
-            "  /augur demo         load a sample week (clear: /augur demo clear)\n"
-            "  /park <text>           park a detour for the Friday run\n"
-            "  /blueprint augur:friday  schedule the Friday run"
+            "  /augur                    your week at a glance\n"
+            "  /augur goals ...          set your 3 goals\n"
+            "  /augur queue              parked items and Friday results\n"
+            "  /augur fix                correct the last label\n"
+            "  /augur pause 2h           pause (or: off)\n"
+            "  /augur report             weekly report image now\n"
+            "  /augur demo               sample week (remove: /augur demo clear)\n"
+            "  /park <text>              park a detour for the Friday run\n"
+            "  /blueprint augur:friday   schedule the Friday run"
         ),
+        "queue_parked": "🧭 Queue · {n} parked",
+        "queue_closed": "Friday results (last 7 days)",
+        "queue_empty": "🧭 The Queue is empty. Park a detour with /park <text>, or answer \"Park it\" when Augur asks.",
+        "queue_draft": "draft: {name}",
         "eval_done": "🧭 Eval written to {path}\n\n{table}",
     },
     "pt": {
@@ -223,15 +228,20 @@ STRINGS: dict[str, dict[str, str]] = {
         "error": "🧭 Algo deu errado, então o Augur saiu do caminho. Detalhes no log do Hermes.",
         "help": (
             "🧭 Comandos do Augur\n"
-            "  /augur              sua semana num relance\n"
-            "  /augur goals ...    defina suas 3 metas\n"
-            "  /augur fix          corrija a última classificação\n"
-            "  /augur pause 2h     pausa (ou: off)\n"
-            "  /augur report       relatório da semana agora\n"
-            "  /augur demo         carrega uma semana de exemplo (apagar: /augur demo clear)\n"
-            "  /park <texto>          estaciona um desvio para a Sexta do Desvio\n"
-            "  /blueprint augur:friday  agenda a Sexta do Desvio"
+            "  /augur                    sua semana num relance\n"
+            "  /augur goals ...          defina suas 3 metas\n"
+            "  /augur queue              itens estacionados e resultados da sexta\n"
+            "  /augur fix                corrija a última classificação\n"
+            "  /augur pause 2h           pausa (ou: off)\n"
+            "  /augur report             relatório da semana agora\n"
+            "  /augur demo               semana de exemplo (apagar: /augur demo clear)\n"
+            "  /park <texto>             estaciona um desvio para a Sexta do Desvio\n"
+            "  /blueprint augur:friday   agenda a Sexta do Desvio"
         ),
+        "queue_parked": "🧭 Fila · {n} estacionados",
+        "queue_closed": "Resultados da sexta (últimos 7 dias)",
+        "queue_empty": "🧭 A fila está vazia. Estacione um desvio com /park <texto>, ou responda \"Estacionar\" quando o Augur perguntar.",
+        "queue_draft": "rascunho: {name}",
         "eval_done": "🧭 Avaliação gravada em {path}\n\n{table}",
     },
 }

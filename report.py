@@ -304,13 +304,14 @@ def render_png(stats: WeekStats, path: Path, lang: str = "en") -> Path:
     bar_h = 26
     for row in stats.rows:
         color = palette.goal_color(row.slot)
-        text(MARGIN, y, row.name, 32, palette.TEXT, weight="bold")
         value = (
             f"{row.pct}%"
             if row.slot == 0
             else strings.t("report_planned_actual", lang, actual=row.pct, planned=row.planned)
         )
         text(WIDTH - MARGIN, y + 2, value, 28, palette.TEXT_MUTED, ha="right")
+        name_room = content_w - len(value) * 28 * 0.58 - 32  # the name never runs into the numbers
+        text(MARGIN, y, _fit(row.name, 34, int(name_room)), 32, palette.TEXT, weight="bold")
         bar_y = y + 44
         ax.add_patch(Rectangle((MARGIN, bar_y), content_w, bar_h, fc=palette.TRACK, ec="none"))
         if row.planned:
@@ -358,7 +359,8 @@ def render_png(stats: WeekStats, path: Path, lang: str = "en") -> Path:
         text(MARGIN, y, marks.get(status, "·"), 28, mark_color, weight="bold")
         label = item["summary60"]
         if status == "needs_you" and item.get("result_line"):
-            label = f"{label} — {item['result_line']}"
+            # keep the reason visible: shorten the item, not the reason
+            label = f"{privacy.clip(label, 26)} — {item['result_line']}"
         label = _fit(label, 28, content_w - 48)
         t = text(MARGIN + 40, y, label, 28, palette.DETOUR if status == "dropped" else palette.TEXT)
         if status == "dropped":

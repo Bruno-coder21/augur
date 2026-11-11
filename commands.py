@@ -26,10 +26,12 @@ GOALS_SCHEMA = {
                 "type": "object",
                 "properties": {"name": {"type": "string"}, "description": {"type": "string"}},
                 "required": ["name", "description"],
+                "additionalProperties": False,
             },
         }
     },
     "required": ["goals"],
+    "additionalProperties": False,
 }
 GOALS_INSTRUCTIONS = (
     "The user described their priorities for this week. Return exactly 3 goals in the order given. "
@@ -154,6 +156,7 @@ class Commands:
             color=(platform == "cli"),
             paused_until=_clock_label(paused) if paused else None,
             last_friday=panel.last_friday_label(store.meta_get("last_friday_run"), lang),
+            health=self.app.health(),
         )
 
     # -- goals --------------------------------------------------------------------
@@ -183,10 +186,15 @@ class Commands:
             split = [int(p) for p in choice.split("/")]
         for goal, pct in zip(goals, split):
             goal["planned_pct"] = pct
-        self.app.store.set_goals(goals, self.app.clock())
-        return strings.t(
+        store = self.app.store
+        store.set_goals(goals, self.app.clock())
+        message = strings.t(
             "goals_saved", lang, g1=names[0], g2=names[1], g3=names[2], p1=split[0], p2=split[1], p3=split[2]
         )
+        if store.has_demo():
+            demo.clear(store)  # real goals now: the sample week must not mix with real numbers
+            message += "\n" + strings.t("goals_demo_cleared", lang)
+        return message
 
     def _extract_goals(self, text: str) -> Optional[list[dict[str, str]]]:
         try:
@@ -223,7 +231,7 @@ class Commands:
     # -- fix ----------------------------------------------------------------------
     def fix(self, arg: str, session_id: str, lang: str) -> str:
         store = self.app.store
-        turn = store.last_classified(session_id or None)
+        turn = store.last_classified(session_id or None)  # never another session's request
         if turn is None or not store.has_goals():
             return strings.t("fix_nothing", lang)
         goals = store.goals()

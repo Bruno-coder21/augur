@@ -140,11 +140,36 @@ def caption_lines(stats: WeekStats, lang: str) -> list[str]:
                 "report_caption", lang, pct=stats.detour_pct, ready=stats.ready, total=total, needs=stats.needs_you
             )
         )
+    elif stats.parked:
+        lines.append(strings.t("report_caption_waiting", lang, pct=stats.detour_pct, n=stats.parked))
     else:
         lines.append(strings.t("report_caption_noqueue", lang, pct=stats.detour_pct))
     if stats.hidden:
         lines.append(strings.t("report_caption_hidden", lang, theme=stats.hidden["theme"]))
     return lines
+
+
+def _empty_queue_line(stats: WeekStats, lang: str) -> str:
+    if stats.parked:
+        return strings.t("report_waiting", lang, n=stats.parked)
+    return strings.t("report_nothing_parked", lang)
+
+
+def prune_files(data_dir: Path, now: datetime, report_days: int = 56, draft_days: int = 30) -> int:
+    """Retention for files: report PNGs after 8 weeks, drafts after 30 days."""
+    removed = 0
+    for folder, pattern, days in ((data_dir, "report-*.png", report_days), (data_dir / "drafts", "*", draft_days)):
+        if not folder.is_dir():
+            continue
+        cutoff = now.timestamp() - days * 86400
+        for path in folder.glob(pattern):
+            try:
+                if path.is_file() and not path.is_symlink() and path.stat().st_mtime < cutoff:
+                    path.unlink()
+                    removed += 1
+            except OSError:
+                continue
+    return removed
 
 
 def render_text(stats: WeekStats, lang: str) -> str:
@@ -165,7 +190,7 @@ def render_text(stats: WeekStats, lang: str) -> str:
     out.append("")
     out.append(strings.t("report_ready", lang))
     if not stats.closed:
-        out.append("  " + strings.t("report_nothing_parked", lang))
+        out.append("  " + _empty_queue_line(stats, lang))
     for item in stats.closed:
         mark = {"done": "✓", "needs_you": "●", "dropped": "✗"}.get(item["status"], "·")
         line = f"  {mark} {item['summary60']}"
@@ -237,7 +262,7 @@ def render_png(stats: WeekStats, path: Path, lang: str = "en") -> Path:
     text(MARGIN + 64, MARGIN + 6, strings.t("report_title", lang, date=week_label(stats, lang)), 30, palette.TEXT_MUTED)
     y = MARGIN + 80
     if stats.has_demo:
-        text(WIDTH - MARGIN, MARGIN + 6, strings.t("report_demo", lang), 28, palette.GOAL_COLORS[2], ha="right")
+        text(WIDTH - MARGIN, MARGIN + 6, strings.t("report_demo", lang), 28, palette.TEXT_MUTED, ha="right")
 
     # --- hero number -----------------------------------------------------------------
     text(MARGIN - 6, y - 8, f"{stats.detour_pct}%", 150, palette.TEXT, weight="bold")
@@ -282,11 +307,11 @@ def render_png(stats: WeekStats, path: Path, lang: str = "en") -> Path:
         ax.add_patch(
             FancyBboxPatch(
                 (MARGIN, y), content_w, bubble_h, boxstyle="round,pad=0,rounding_size=18",
-                fc=palette.TRACK, ec=palette.GOAL_COLORS[2], lw=2,
+                fc=palette.TRACK, ec=palette.TEXT_MUTED, lw=2,
             )
         )
         title = strings.t("report_hidden", lang, theme=stats.hidden["theme"], count=stats.hidden["count"])
-        text(MARGIN + 24, y + 18, _wrap(title, 30, content_w - 48)[0], 30, palette.GOAL_COLORS[2], weight="bold")
+        text(MARGIN + 24, y + 18, _fit(title, 30, content_w - 48), 30, palette.TEXT, weight="bold")
         ey = y + 62
         for ex in examples:
             text(MARGIN + 24, ey, "“" + _wrap(ex, 28, content_w - 80)[0] + "”", 28, palette.TEXT_MUTED)
@@ -299,7 +324,7 @@ def render_png(stats: WeekStats, path: Path, lang: str = "en") -> Path:
     y += 46
     marks = {"done": "✓" if _has_glyph("✓") else "+", "needs_you": "●" if _has_glyph("●") else "*", "dropped": "–"}
     if not stats.closed:
-        text(MARGIN, y, strings.t("report_nothing_parked", lang), 28, palette.TEXT_MUTED)
+        text(MARGIN, y, _empty_queue_line(stats, lang), 28, palette.TEXT_MUTED)
     shown = 0
     renderer = canvas.get_renderer()
     # needs-you items first: they are the ones that ask for the user's attention
@@ -308,7 +333,7 @@ def render_png(stats: WeekStats, path: Path, lang: str = "en") -> Path:
         if y + 42 + (42 if shown + 1 < len(ordered) else 0) > footer_y - 8:
             break
         status = item["status"]
-        mark_color = {"done": palette.GOAL_COLORS[1], "needs_you": palette.GOAL_COLORS[2]}.get(status, palette.DETOUR)
+        mark_color = palette.DETOUR if status == "dropped" else palette.TEXT  # goal colors stay reserved for goals
         text(MARGIN, y, marks.get(status, "·"), 28, mark_color, weight="bold")
         label = item["summary60"]
         if status == "needs_you" and item.get("result_line"):

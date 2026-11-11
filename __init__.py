@@ -34,19 +34,21 @@ def register(ctx):
     except Exception as exc:  # storage trouble must not take the agent down; hooks stay silent
         log.warning("bussola storage unavailable at load: %s", exc)
 
-    # Two model slots, configurable in the model screens; both follow the cheap
-    # compression model until the user pins another one.
+    # Two model slots, configurable in the model screens. They follow the compression
+    # slot until the user pins a model; the panel warns when labels arrive too slowly.
     ctx.register_auxiliary_task(
         "bussola_classifier",
         display_name="Bussola classifier",
-        description="Labels each request against your 3 weekly goals (one short call per message).",
+        description="Labels each request against your 3 weekly goals (one short call per message). Pin a fast model.",
         inherit_from="compression",
+        defaults={"reasoning_effort": "none", "timeout": 20},
     )
     ctx.register_auxiliary_task(
         "bussola_insight",
         display_name="Bussola hidden priority",
         description="Finds a recurring theme in the week's detours (one call per weekly report).",
         inherit_from="compression",
+        defaults={"reasoning_effort": "low", "timeout": 60},
     )
 
     ctx.register_hook("pre_llm_call", app.on_pre_llm_call)

@@ -71,7 +71,7 @@ function Panel({ status, t }) {
     ...status.rows.map(row => jsx(Bar, { row: row.slot === 0 ? { ...row, name: t('detours') } : row, t }, row.slot)),
     jsx('div', { className: 'text-xs text-(--ui-text-secondary)', children: t('queue', status.parked) }),
     status.hidden
-      ? jsx('div', { className: 'rounded-md border px-2 py-1.5 text-xs', style: { borderColor: GOAL_COLORS[2], color: GOAL_COLORS[2] },
+      ? jsx('div', { className: 'rounded-md border border-(--ui-border) px-2 py-1.5 text-xs text-foreground',
           children: t('hidden', status.hidden.theme, status.hidden.count) })
       : null,
     jsx('div', { className: 'text-[0.6875rem] text-(--ui-text-tertiary)', children: t('more') })

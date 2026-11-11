@@ -37,8 +37,10 @@ STRINGS: dict[str, dict[str, str]] = {
         "cancel": "Cancel",
         "goals_saved": (
             "🧭 Goals saved: {g1} {p1}% · {g2} {p2}% · {g3} {p3}%.\n"
-            "I'll stay quiet unless you drift twice in a row. See your week anytime with /bussola."
+            "I'll stay quiet unless you drift twice in a row. See your week anytime with /bussola.\n"
+            "Tip: pin a fast, cheap model for “Bussola classifier” in `hermes model` so labels take under a second."
         ),
+        "goals_demo_cleared": "The demo data was removed; from now on only your real requests count.",
         "goals_not_saved": "Goals not saved. Add the split inline to skip the question: /bussola goals {names} 50/30/20",
         "goals_parse_failed": (
             "I couldn't find 3 goals in that. Try:\n"
@@ -75,7 +77,8 @@ STRINGS: dict[str, dict[str, str]] = {
         "panel_detours": "Detours",
         "panel_queue": "Queue: {n} parked · {friday}",
         "panel_friday_on": "last Friday run {when}",
-        "panel_friday_off": "Friday run not scheduled → /blueprint bussola:friday",
+        "panel_friday_off": "no Friday run yet → /blueprint bussola:friday",
+        "panel_health": "⚠ {bad} of the last {n} labels were too slow or failed. Pin a fast model for “Bussola classifier” (hermes model) so nudges arrive in time.",
         "panel_hidden": "Hidden priority: \"{theme}\" ({count} requests) → /bussola goals",
         "panel_self_cost": "Bussola itself used {tokens} tokens this week",
         "panel_empty": "No requests counted yet this week. Just work; Bussola counts quietly.",
@@ -86,10 +89,12 @@ STRINGS: dict[str, dict[str, str]] = {
         "report_hero": "{pct}% of your requests went to detours",
         "report_hero_sub": "{n} requests · {tokens} tokens",
         "report_planned_actual": "{actual}% · planned {planned}%",
-        "report_ready": "Ready while you slept",
+        "report_ready": "Ready for you",
         "report_hidden": "Hidden priority: {theme} · {count} requests",
         "report_footer": "Bussola cost: {tokens} tokens · {corrections} corrections this week",
         "report_nothing_parked": "Nothing parked this week.",
+        "report_waiting": "{n} parked, waiting for the Friday run.",
+        "report_caption_waiting": "🧭 Your week: {pct}% went to detours. {n} parked items wait for the Friday run.",
         "report_demo": "includes demo data",
         "report_caption": "🧭 Your week: {pct}% went to detours. {ready} of {total} parked items are ready, {needs} need you.",
         "report_caption_noqueue": "🧭 Your week: {pct}% went to detours. Nothing was parked.",
@@ -140,8 +145,10 @@ STRINGS: dict[str, dict[str, str]] = {
         "cancel": "Cancelar",
         "goals_saved": (
             "🧭 Metas salvas: {g1} {p1}% · {g2} {p2}% · {g3} {p3}%.\n"
-            "Fico em silêncio, a menos que você se desvie duas vezes seguidas. Veja sua semana com /bussola."
+            "Fico em silêncio, a menos que você se desvie duas vezes seguidas. Veja sua semana com /bussola.\n"
+            "Dica: fixe um modelo rápido e barato para “Bussola classifier” em `hermes model` para cada classificação levar menos de 1 segundo."
         ),
+        "goals_demo_cleared": "Os dados de demonstração foram removidos; daqui em diante só contam seus pedidos reais.",
         "goals_not_saved": "Metas não salvas. Inclua a divisão na linha para pular a pergunta: /bussola goals {names} 50/30/20",
         "goals_parse_failed": (
             "Não encontrei 3 metas nisso. Tente:\n"
@@ -173,7 +180,8 @@ STRINGS: dict[str, dict[str, str]] = {
         "panel_detours": "Desvios",
         "panel_queue": "Fila: {n} estacionados · {friday}",
         "panel_friday_on": "última Sexta do Desvio {when}",
-        "panel_friday_off": "Sexta do Desvio não agendada → /blueprint bussola:friday",
+        "panel_friday_off": "nenhuma Sexta do Desvio ainda → /blueprint bussola:friday",
+        "panel_health": "⚠ {bad} das últimas {n} classificações foram lentas demais ou falharam. Fixe um modelo rápido para “Bussola classifier” (hermes model) para os avisos chegarem a tempo.",
         "panel_hidden": "Prioridade oculta: \"{theme}\" ({count} pedidos) → /bussola goals",
         "panel_self_cost": "A própria Bússola usou {tokens} tokens nesta semana",
         "panel_empty": "Nenhum pedido contado nesta semana ainda. Trabalhe; a Bússola conta em silêncio.",
@@ -183,10 +191,12 @@ STRINGS: dict[str, dict[str, str]] = {
         "report_hero": "{pct}% dos seus pedidos foram desvios",
         "report_hero_sub": "{n} pedidos · {tokens} tokens",
         "report_planned_actual": "{actual}% · planejado {planned}%",
-        "report_ready": "Pronto enquanto você dormia",
+        "report_ready": "Pronto para você",
         "report_hidden": "Prioridade oculta: {theme} · {count} pedidos",
         "report_footer": "Custo da Bússola: {tokens} tokens · {corrections} correções nesta semana",
         "report_nothing_parked": "Nada estacionado nesta semana.",
+        "report_waiting": "{n} estacionados, esperando a Sexta do Desvio.",
+        "report_caption_waiting": "🧭 Sua semana: {pct}% foi para desvios. {n} itens estacionados esperam a Sexta do Desvio.",
         "report_demo": "inclui dados de demonstração",
         "report_caption": "🧭 Sua semana: {pct}% foi para desvios. {ready} de {total} itens estacionados estão prontos, {needs} precisam de você.",
         "report_caption_noqueue": "🧭 Sua semana: {pct}% foi para desvios. Nada foi estacionado.",

@@ -29,6 +29,7 @@ def render(
     color: bool,
     paused_until: Optional[str] = None,
     last_friday: Optional[str] = None,
+    health: tuple[int, int] = (0, 0),
 ) -> str:
     def paint(text: str, hex_color: str) -> str:
         return f"{palette.ansi(hex_color)}{text}{palette.ANSI_RESET}" if color else text
@@ -67,9 +68,13 @@ def render(
     if stats.hidden:
         lines.append("  " + paint(
             strings.t("panel_hidden", lang, theme=stats.hidden["theme"], count=stats.hidden["count"]),
-            palette.GOAL_COLORS[2],
+            palette.TEXT,
         ))
     lines.append("  " + muted(strings.t("panel_self_cost", lang, tokens=human_tokens(stats.self_tokens))))
+    bad, total = health
+    if total >= 10 and bad * 10 >= total * 3:  # 30% or more slow/failed
+        lines.append("")
+        lines.append("  " + strings.t("panel_health", lang, bad=bad, n=total))
     return "\n".join(lines)
 
 

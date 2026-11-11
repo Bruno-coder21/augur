@@ -1,4 +1,4 @@
-"""Regression tests for the issues found in the independent review."""
+"""Regressions found by the independent reviews (judge, quality and security passes)."""
 
 from __future__ import annotations
 
@@ -131,7 +131,9 @@ def test_caption_plural_and_eval_cost_not_counted(make_app, clock):
     app.store.queue_close(items[1]["id"], "done", "y", None, clock())
     stats = report.week_stats(app.store, clock())
     assert "1 needs you" in report.caption_lines(stats, "en")[0]
-    app.evaluating = True
+    from augur.core import EVALUATING
+
+    token = EVALUATING.set(True)
     app.on_post_auxiliary_call(aux_task="augur_classifier", usage={"total_tokens": 999})
-    app.evaluating = False
+    EVALUATING.reset(token)
     assert app.week().self_tokens == 0

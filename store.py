@@ -2,14 +2,14 @@
 
 The database lives in ``plugin_data_dir("augur")/data.db`` (via Hermes's
 ``plugin_db``) and follows the active profile. All user text stored here is
-already redacted and at most 60 characters (see ``privacy.py``).
+already redacted, inert and length-limited (see ``privacy.py`` for the exact limits).
 """
 
 from __future__ import annotations
 
 import sqlite3
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable, Optional
 
@@ -27,9 +27,9 @@ MIGRATIONS: list[tuple[int, str]] = [
           name TEXT NOT NULL, description TEXT, planned_pct INTEGER NOT NULL,
           color TEXT NOT NULL, created_at TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS turns (
-          id INTEGER PRIMARY KEY, ts TEXT NOT NULL, conv_id TEXT, session_id TEXT,
+          id INTEGER PRIMARY KEY, ts TEXT NOT NULL, session_id TEXT,
           goal INTEGER, confidence REAL, summary60 TEXT, source TEXT,
-          tokens INTEGER DEFAULT 0, cost_usd REAL DEFAULT 0, nudged INTEGER DEFAULT 0,
+          tokens INTEGER DEFAULT 0, nudged INTEGER DEFAULT 0,
           decision TEXT, decided_at TEXT);
         CREATE INDEX IF NOT EXISTS turns_ts ON turns(ts);
         CREATE INDEX IF NOT EXISTS turns_session ON turns(session_id, id);
@@ -42,12 +42,15 @@ MIGRATIONS: list[tuple[int, str]] = [
           goal INTEGER NOT NULL, source TEXT DEFAULT 'live');
         CREATE TABLE IF NOT EXISTS self_cost (
           id INTEGER PRIMARY KEY, ts TEXT NOT NULL, task TEXT, tokens INTEGER,
-          cost_usd REAL, source TEXT DEFAULT 'live');
+          source TEXT DEFAULT 'live');
         """,
     ),
 ]
 
 QUEUE_STATUSES = ("parked", "done", "needs_you", "dropped")
+CLOSE_STATUSES = ("done", "needs_you", "dropped")
+QUEUE_MAX_PARKED = 100
+BUSY_TIMEOUT_MS = 1000
 
 
 def utcnow() -> datetime:
@@ -100,6 +103,8 @@ class Store:
             if self._conn is None:
                 conn = self._connect()
                 conn.row_factory = sqlite3.Row
+                # hooks run on the user's turn: never wait seconds for another process's write lock
+                conn.execute(f"PRAGMA busy_timeout = {BUSY_TIMEOUT_MS}")
                 self._conn = conn
                 self._migrate(conn)
             return self._conn
@@ -161,6 +166,11 @@ class Store:
                 "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                 (key, str(value)),
             )
+
+    def meta_update(self, key: str, fn: Callable[[Optional[str]], Optional[str]]) -> None:
+        """Atomic read-modify-write of one meta value."""
+        with self._lock:
+            self.meta_set(key, fn(self.meta_get(key)))
 
     # -- goals ------------------------------------------------------------
     def goals(self) -> list[dict[str, Any]]:
@@ -236,7 +246,7 @@ class Store:
         """The last request the model labeled in this session (inherited short replies are skipped)."""
         return self._one(
             "SELECT * FROM turns WHERE session_id=? AND id<? AND goal IS NOT NULL "
-            "AND source NOT IN ('inherited', 'answer') ORDER BY id DESC LIMIT 1",
+            "AND source!='inherited' ORDER BY id DESC LIMIT 1",
             (session_id, before_id),
         )
 
@@ -248,7 +258,7 @@ class Store:
 
     def last_classified(self, session_id: Optional[str] = None) -> Optional[dict[str, Any]]:
         """The last labeled request with a summary; scoped to the session when one is given."""
-        where = "goal IS NOT NULL AND source NOT IN ('demo', 'inherited', 'answer') AND COALESCE(summary60,'')!=''"
+        where = "goal IS NOT NULL AND source NOT IN ('demo', 'inherited') AND COALESCE(summary60,'')!=''"
         if session_id:
             return self._one(f"SELECT * FROM turns WHERE session_id=? AND {where} ORDER BY id DESC LIMIT 1", (session_id,))
         return self._one(f"SELECT * FROM turns WHERE {where} ORDER BY id DESC LIMIT 1")
@@ -273,6 +283,8 @@ class Store:
         text = privacy.summary60(summary)
         if not text:
             raise ValueError("empty summary")
+        if self.queue_size() >= QUEUE_MAX_PARKED:
+            raise ValueError(f"the Queue is full ({QUEUE_MAX_PARKED} parked items)")
         return self._write(
             "INSERT INTO queue(ts, summary60, status, source) VALUES(?,?, 'parked', ?)", (iso(now), text, source)
         )
@@ -282,8 +294,6 @@ class Store:
 
     def prune(self, now: datetime, days: int = 90) -> int:
         """Retention: labeled requests older than ``days`` are deleted."""
-        from datetime import timedelta
-
         with self._lock:
             conn = self.conn
             with conn:
@@ -292,15 +302,13 @@ class Store:
 
     def demo_is_stale(self, now: datetime) -> bool:
         """True when demo rows exist but the newest one has left the 7-day window."""
-        from datetime import timedelta
-
         row = self._one("SELECT MAX(ts) AS ts FROM turns WHERE source='demo'")
         return bool(row and row["ts"]) and parse_iso(row["ts"]) < now - timedelta(days=7)
 
-    def queue_list(self, status: Optional[str] = "parked") -> list[dict[str, Any]]:
+    def queue_list(self, status: Optional[str] = "parked", limit: int = 1000) -> list[dict[str, Any]]:
         if status:
-            return self._rows("SELECT * FROM queue WHERE status=? ORDER BY id", (status,))
-        return self._rows("SELECT * FROM queue ORDER BY id")
+            return self._rows("SELECT * FROM queue WHERE status=? ORDER BY id LIMIT ?", (status, int(limit)))
+        return self._rows("SELECT * FROM queue ORDER BY id LIMIT ?", (int(limit),))
 
     def queue_size(self) -> int:
         row = self._one("SELECT COUNT(*) AS n FROM queue WHERE status='parked'")
@@ -309,8 +317,8 @@ class Store:
     def queue_close(
         self, item_id: int, status: str, result: str, draft_path: Optional[str], now: datetime
     ) -> bool:
-        if status not in QUEUE_STATUSES or status == "parked":
-            raise ValueError(f"status must be one of done, needs_you, dropped (got {status!r})")
+        if status not in CLOSE_STATUSES:
+            raise ValueError(f"status must be one of {', '.join(CLOSE_STATUSES)} (got {status!r})")
         self._write(
             "UPDATE queue SET status=?, result_line=?, draft_path=?, closed_at=? WHERE id=?",
             (status, privacy.result_line(result), draft_path, iso(now), item_id),
@@ -318,16 +326,13 @@ class Store:
         return self.queue_get(item_id) is not None
 
     def drop_stale(self, now: datetime, days: int = 14) -> int:
-        from datetime import timedelta
-
         cutoff = iso(now - timedelta(days=days))
         with self._lock:
             conn = self.conn
             with conn:
                 cur = conn.execute(
-                    "UPDATE queue SET status='dropped', closed_at=?, result_line=COALESCE(result_line, ?) "
-                    "WHERE status='parked' AND ts<?",
-                    (iso(now), f"Parked for more than {days} days", cutoff),
+                    "UPDATE queue SET status='dropped', closed_at=? WHERE status='parked' AND ts<?",
+                    (iso(now), cutoff),
                 )
             return int(cur.rowcount or 0)
 
@@ -358,8 +363,8 @@ class Store:
     # -- self cost --------------------------------------------------------
     def self_cost_add(self, task: str, tokens: int, now: datetime, source: str = "live") -> int:
         return self._write(
-            "INSERT INTO self_cost(ts, task, tokens, cost_usd, source) VALUES(?,?,?,?,?)",
-            (iso(now), task, int(tokens), 0.0, source),
+            "INSERT INTO self_cost(ts, task, tokens, source) VALUES(?,?,?,?)",
+            (iso(now), task, int(tokens), source),
         )
 
     def self_tokens_between(self, start: datetime, end: datetime) -> int:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from datetime import datetime, timezone
 
 from conftest import detour, on_goal, turn
 
@@ -21,7 +22,7 @@ def test_migrations_twice_keep_data(tmp_path):
     path = tmp_path / "db.sqlite"
     s1 = Store(path)
     assert s1.migrate() == 1
-    s1.queue_add("keep me", __import__("datetime").datetime.now(__import__("datetime").timezone.utc))
+    s1.queue_add("keep me", datetime.now(timezone.utc))
     s1.close()
     s2 = Store(path)
     assert s2.migrate() == 1
@@ -46,10 +47,11 @@ def test_nothing_longer_than_60_chars_of_user_text_is_stored(make_app, tmp_path)
 
 
 def test_secrets_are_redacted_before_storage(make_app):
-    app = make_app(lambda kw: on_goal(1, summary="token ghp_abcdefghijklmnopqrstuvwxyz0123"))
-    turn(app, "use ghp_abcdefghijklmnopqrstuvwxyz0123 to push the deck")
+    fake = "ghp_" + "abcdefghij" * 3  # built at runtime so secret scanners stay quiet
+    app = make_app(lambda kw: on_goal(1, summary=f"token {fake}"))
+    turn(app, f"use {fake} to push the deck")
     row = app.store.get_turn(1)
-    assert "ghp_abcdefghijklmnopqrstuvwxyz0123" not in (row["summary60"] or "")
+    assert fake not in (row["summary60"] or "")
 
 
 # ---------------------------------------------------------------- goals
@@ -112,6 +114,8 @@ def test_panel_onboarding_then_panel(make_app):
     demo.load(app.store, app.clock())
     text = Commands(app).augur("", platform="telegram")
     assert "VDRI launch" in text and "24%" in text and "\x1b[" not in text
+    block = text.split("```")[1].strip().splitlines()
+    assert len(block) == 4 and max(len(line) for line in block) <= 36  # fits a phone in monospace
     assert "Hidden priority" in text
     colored = Commands(app).augur("", platform="cli")
     assert "\x1b[38;2;59;130;246m" in colored  # goal 1 blue
@@ -212,7 +216,7 @@ def test_tools_queue_done_and_errors(make_app):
 
 def test_status_rpc_and_emit(make_app):
     app = make_app(lambda kw: on_goal(2))
-    assert app.rpc_status({}, session_id="s1")["on_goals_pct"] == 0
+    assert app.rpc_status({}, session_id="s1")["on_goals_pct"] is None  # nothing counted yet: no "0%"
     turn(app, "write the pytest tests for the classifier")
     status = app.rpc_status({"session_id": "s1"})
     assert status["current_goal"] == "Hackathons" and status["on_goals_pct"] == 100

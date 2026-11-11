@@ -155,7 +155,9 @@ def run(
 
 
 def run_with_app(app: Any, final: bool = False) -> tuple[Path, str]:
-    app.evaluating = True  # eval calls are not counted as Augur's own cost
+    from ..core import EVALUATING
+
+    token = EVALUATING.set(True)  # eval calls are not counted as Augur's own cost
     try:
         return run(
             app.classifier.call,
@@ -164,4 +166,4 @@ def run_with_app(app: Any, final: bool = False) -> tuple[Path, str]:
             out_dir=app.data_dir / "evals",
         )
     finally:
-        app.evaluating = False
+        EVALUATING.reset(token)

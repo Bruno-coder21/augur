@@ -57,11 +57,8 @@ def valid_split(split: Optional[list[int]]) -> bool:
 
 def _goal(part: str) -> dict[str, str]:
     part = part.strip().strip(".")
-    if ":" in part:
-        name, desc = part.split(":", 1)
-        name, desc = name.strip(), part.strip()
-    else:
-        name, desc = part, part
+    name = part.split(":", 1)[0].strip()  # "Name: what it covers" → the name, and the whole line as description
+    desc = part
     name = privacy.clip(name, 40)
     return {"name": name[:1].upper() + name[1:], "description": privacy.clip(desc, 160)}
 
@@ -123,8 +120,8 @@ class Commands:
                 return self.demo(rest, lang)
             if head == "report":
                 return self.report(platform, lang)
-            if head == "eval":
-                return self.run_eval(rest, lang)
+            if head == "eval" and (platform or "").lower() in LOCAL_SURFACES:
+                return self.run_eval(rest, lang)  # developer tool: 60 model calls, local surfaces only
             return strings.t("help", lang)
         except Exception as exc:
             log.warning("augur command failed: %s", exc, exc_info=True)
@@ -154,7 +151,8 @@ class Commands:
             stats,
             lang,
             color=(platform == "cli"),
-            paused_until=_clock_label(paused) if paused else None,
+            compact=(platform or "").lower() not in ("cli", "tui", ""),
+            paused_until=_clock_label(paused, lang) if paused else None,
             last_friday=panel.last_friday_label(store.meta_get("last_friday_run"), lang),
             health=self.app.health(),
         )
@@ -274,7 +272,7 @@ class Commands:
         if not 1 <= minutes <= 7 * 1440:
             return strings.t("pause_usage", lang)
         until = self.app.pause(minutes)
-        return strings.t("pause_on", lang, until=_clock_label(until))
+        return strings.t("pause_on", lang, until=_clock_label(until, lang))
 
     # -- demo ---------------------------------------------------------------------
     def demo(self, arg: str, lang: str) -> str:
@@ -291,6 +289,8 @@ class Commands:
 
     # -- report -------------------------------------------------------------------
     def report(self, platform: str, lang: str) -> str:
+        if not self.app.store.has_goals():
+            return strings.t("onboarding", lang)
         result = self.app.build_report()
         if not result.get("path"):
             return result["caption"] + "\n\n" + result["text"]
@@ -307,8 +307,16 @@ class Commands:
         return strings.t("eval_done", lang, path=path, table=table)
 
 
-def _clock_label(moment: Any) -> str:
+_WEEKDAYS = {
+    "en": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+    "pt": ["seg", "ter", "qua", "qui", "sex", "sáb", "dom"],
+}
+
+
+def _clock_label(moment: Any, lang: str = "en") -> str:
+    """Server-local time (Hermes's own timezone helper is not public API)."""
     try:
-        return moment.astimezone().strftime("%a %H:%M")
+        local = moment.astimezone()
+        return f"{_WEEKDAYS.get(lang, _WEEKDAYS['en'])[local.weekday()]} {local:%H:%M}"
     except Exception:
         return str(moment)

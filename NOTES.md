@@ -6,7 +6,7 @@ Everything Augur relies on was read in the Hermes source before use.
 - **Rule:** where the docs and the code disagreed, Augur follows the code. Each divergence is recorded below.
 - **Paths:** relative to the Hermes checkout.
 
-## The 7 open questions from the brief
+## Questions answered before writing code
 
 | Question | Answer | Where |
 |---|---|---|
@@ -18,11 +18,11 @@ Everything Augur relies on was read in the Hermes source before use.
 | matplotlib vs Hermes constraints | Not a Hermes dependency. `matplotlib>=3.8,<4` resolves next to Hermes's pins; pillow is forced to 13.0.0 by Hermes, which matplotlib accepts. `hermes plugins validate . --install-deps` passes. | `pyproject.toml` `[tool.uv]` |
 | Installed version | `Hermes Agent v0.23.1 (2026.9.24)`, so `requires_hermes: ">=0.23.1"`. | `hermes --version` |
 
-## Where the docs (or the brief) and the code disagree
+## Where the docs (or our first design) and the code disagree
 
-1. **Auxiliary task keys** may contain only `[A-Za-z0-9_]`. The brief's `classifier` and `insight` became `augur_classifier` and `augur_insight`. The `aux_task` value in `post_auxiliary_call` is that key. (`hermes_cli/plugins_aux_tasks.py`)
+1. **Auxiliary task keys** may contain only `[A-Za-z0-9_]`. Plain `classifier` / `insight` keys are refused, so they are `augur_classifier` and `augur_insight`. The `aux_task` value in `post_auxiliary_call` is that key. (`hermes_cli/plugins_aux_tasks.py`)
 2. **`ctx.llm.complete_structured(input=...)`** takes a list of blocks (`[{"type": "text", "text": ...}]`), not a string. A reply that does not match the schema raises `ValueError` when `jsonschema` is installed. (`agent/plugin_llm.py`)
-3. **`usage.cost_usd` is always `None`** for plugin LLM calls, and `post_api_request`'s `usage` has no cost field. Augur therefore reports tokens only, and the brief's `currency` setting was dropped.
+3. **`usage.cost_usd` is always `None`** for plugin LLM calls, and `post_api_request`'s `usage` has no cost field. Augur therefore reports tokens only and has no currency setting.
 4. **`ctx.get_config` does not apply the `config_schema` defaults** from `plugin.yaml`. The defaults live in `config.py`.
 5. **Text returned by `pre_llm_call` is stored with the message and resent on every later turn** (`api_content` sidecar), even though the docs call it ephemeral. The nudge text is short and starts with "applies to this message only".
 6. **`pre_tool_call` fails closed:** a callback that raises blocks the tool. Augur's guard is wrapped so it can only block inside its own Friday run.
@@ -32,6 +32,11 @@ Everything Augur relies on was read in the Hermes source before use.
 10. **Command names with `_` never match on messaging platforms** (the gateway looks up `name.replace("_", "-")`). Augur uses `/augur` and `/park`.
 11. **`plugin_db()` opens a new connection on every call.** `Store` keeps one connection per process behind an `RLock`.
 12. **The V4A form of `patch` carries file paths inside the patch text**, not only in `path`. The Friday guard checks every `*** Add/Update/Delete/Move File:` header.
+
+13. **Anthropic structured outputs reject a JSON schema** unless every object sets `additionalProperties: false`, and they do not accept numeric constraints. The schemas follow that; `classifier.parse` validates the ranges itself.
+14. **The gateway also attaches bare absolute file paths** found in a reply (`gateway/platforms/base.py` `extract_local_files`), not only `MEDIA:` tags. Every piece of stored or model-written text goes through `privacy.inert` before it is shown.
+15. **Plugin code is loaded once per gateway process.** After changing the plugin, restart the gateway (`hermes gateway restart`, or stop the idle local gateway) before testing.
+16. **A plugin blueprint cannot set `enabled_toolsets` for the cron job it creates** (`cron/blueprint_catalog.py` `fill_blueprint`). The Friday run is therefore contained by the `pre_tool_call` guard, and the job keeps running if Augur is disabled. Remove it with `hermes cron remove` when uninstalling.
 
 ## Evidence log
 

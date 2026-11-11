@@ -15,8 +15,6 @@ def ansi(hex_color: str) -> str:
     return f"\x1b[38;2;{r};{g};{b}m"
 
 ANSI_RESET = "\x1b[0m"
-ANSI_DIM = "\x1b[2m"
-ANSI_BOLD = "\x1b[1m"
 
 
 def goal_color(slot: int) -> str:

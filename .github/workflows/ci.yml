@@ -11,6 +11,7 @@ jobs:
   tests:
     name: pytest (Python ${{ matrix.python }})
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
@@ -21,13 +22,14 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - name: Install test dependencies
-        run: python -m pip install "pytest>=8,<10" "matplotlib>=3.8,<4" "jsonschema>=4,<5"
+        run: python -m pip install "pytest>=8,<10" "matplotlib>=3.8,<4"
       - name: Run tests
         run: python -m pytest -q
 
   hygiene:
     name: no bytecode, no binaries
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
       - name: Refuse compiled or binary files (catalog rule 17)
@@ -35,12 +37,16 @@ jobs:
           set -euo pipefail
           bad=$(git ls-files | grep -E '\.(pyc|pyo|so|dll|dylib|exe|bin|whl|zip|tar|gz)$' || true)
           if [ -n "$bad" ]; then echo "binary files tracked:"; echo "$bad"; exit 1; fi
-          git ls-files -z | xargs -0 file --mime-type | grep -E 'application/(x-executable|x-sharedlib|x-mach-binary|x-dosexec|wasm)' && exit 1 || true
+          if git ls-files -z | xargs -0 file --mime-type \
+            | grep -E 'application/(x-executable|x-pie-executable|x-sharedlib|x-object|x-mach-binary|x-dosexec|vnd\.microsoft\.portable-executable|wasm)'; then
+            echo "compiled binaries tracked"; exit 1
+          fi
           echo "clean"
 
   hermes-validate:
     name: hermes plugins validate (v0.23.1)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: NousResearch/hermes-agent/.github/actions/plugin-validate@3b421578588243f920886e6fe79a6faa87ea026e

@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import sys
 import time
 from dataclasses import dataclass, field
@@ -17,7 +18,13 @@ from typing import Any, Callable, Optional
 import pytest
 
 REPO = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO.parent))  # the repo folder *is* the ``augur`` package
+
+# The repo folder *is* the ``augur`` package. Load it by path so the tests work whatever the
+# checkout folder is called (a zip download, a fork) and never pick up a sibling copy.
+_spec = importlib.util.spec_from_file_location("augur", REPO / "__init__.py", submodule_search_locations=[str(REPO)])
+_pkg = importlib.util.module_from_spec(_spec)
+sys.modules["augur"] = _pkg
+_spec.loader.exec_module(_pkg)
 
 import augur  # noqa: E402
 from augur.core import Augur  # noqa: E402

@@ -1,9 +1,15 @@
-"""Redaction and the 60-character rule.
+"""Redaction, length limits and output safety for every piece of user or model text.
 
-Nothing Augur stores is longer than 60 characters of user text, and
-everything passes through Hermes's public ``redact_sensitive_text(force=True)``
-first. When Hermes is not importable (unit tests, CI), a conservative local
-fallback masks the obvious secret shapes.
+What Augur stores, at most: a model-written request summary (60 chars), goal names
+(40) and descriptions (160), parked-item text as the user or agent wrote it (60), and
+Friday-run result lines (140). Everything passes through Hermes's public
+``redact_sensitive_text(force=True)`` first (secret-shaped tokens only: names or
+health details typed into ``/park`` are stored as typed). When Hermes is not
+importable (unit tests, CI), a conservative local fallback masks the obvious shapes.
+
+``inert`` makes stored text safe to repeat in replies: no terminal control or
+bidi-override characters, no ``MEDIA:`` attachment tags, and no bare absolute paths
+the gateway would turn into attachments.
 """
 
 from __future__ import annotations
@@ -17,10 +23,22 @@ RESULT_MAX = 140
 _FALLBACK_PATTERNS = [
     re.compile(r"\b(sk|pk|rk|ghp|gho|ghs|xox[abprs]|AKIA|AIza)[-_A-Za-z0-9]{8,}\b"),
     re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"),
-    re.compile(r"\b\d{3,}[-\s]?\d{3,}[-\s]?\d{3,}\b"),
+    re.compile(r"\b\d{3,12}[-\s]?\d{3,12}[-\s]?\d{3,12}\b"),
     re.compile(r"(?i)\b(password|passwd|token|secret|api[_-]?key)\s*[:=]\s*\S+"),
     re.compile(r"\b[A-Fa-f0-9]{32,}\b"),
 ]
+_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f\u200b-\u200f\u202a-\u202e\u2066-\u2069]")
+_MEDIA_TAG = re.compile(r"media\s*:", re.IGNORECASE)
+# the gateway attaches bare absolute paths (/x/y.png, ~/y.pdf) found in a reply; a division
+# slash (U+2215) at the start of a path looks the same to people and to no one else
+_PATH_START = re.compile(r"(?<![/:\w.∕])(~?)/(?=[\w.\-])")
+
+
+def inert(text: Any) -> str:
+    """Safe to show in any reply: no control chars, no MEDIA tags, no attachable paths."""
+    value = _CONTROL.sub("", "" if text is None else str(text))
+    value = _MEDIA_TAG.sub("MEDIA ·", value)
+    return _PATH_START.sub(lambda m: m.group(1) + "∕", value)
 
 
 def _fallback_redact(text: str) -> str:
@@ -45,8 +63,8 @@ def redact(text: Any) -> str:
 
 
 def clip(text: Any, limit: int) -> str:
-    """Collapse whitespace and cut to ``limit`` characters (with an ellipsis)."""
-    value = " ".join(str(text or "").split())
+    """Make inert, collapse whitespace and cut to ``limit`` characters (with an ellipsis)."""
+    value = " ".join(inert(text).split())
     if len(value) <= limit:
         return value
     return value[: max(0, limit - 1)].rstrip() + "…"
@@ -54,11 +72,11 @@ def clip(text: Any, limit: int) -> str:
 
 def summary60(text: Any) -> str:
     """Redact first, then clip: the only shape user text is ever stored in."""
-    return clip(redact(text), SUMMARY_MAX)
+    return clip(redact(str(text or "")[: SUMMARY_MAX * 4]), SUMMARY_MAX)
 
 
 def result_line(text: Any) -> str:
-    return clip(redact(text), RESULT_MAX)
+    return clip(redact(str(text or "")[: RESULT_MAX * 4]), RESULT_MAX)
 
 
 def message_text(user_message: Any) -> str:

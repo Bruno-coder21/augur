@@ -29,20 +29,15 @@ def local_day_start(now: datetime) -> datetime:
     return local.replace(hour=0, minute=0, second=0, microsecond=0)
 
 
-def should_nudge(
-    store: Store,
-    *,
-    session_id: str,
-    turn_row: int,
-    goal: Optional[int],
-    confidence: float,
-    now: datetime,
-    min_confidence: float,
-    cooldown_minutes: int,
-    max_per_day: int,
-) -> bool:
-    if goal != 0 or confidence < min_confidence:
-        return False
+@dataclass(frozen=True)
+class Limits:
+    min_confidence: float
+    cooldown_minutes: int
+    max_per_day: int
+
+
+def _streak_open(store: Store, session_id: str, turn_row: int, now: datetime, limits: Limits) -> bool:
+    """Conditions 2-4: an unanswered detour just before, no quiet time, daily budget left."""
     previous = store.previous_classified(session_id, turn_row)
     if previous is None or previous["goal"] != 0:
         return False
@@ -52,39 +47,29 @@ def should_nudge(
         return False
     last_do_now = store.last_do_now(session_id)
     if last_do_now and last_do_now.get("decided_at"):
-        if now - parse_iso(last_do_now["decided_at"]) < timedelta(minutes=cooldown_minutes):
+        if now - parse_iso(last_do_now["decided_at"]) < timedelta(minutes=limits.cooldown_minutes):
             return False
-    if store.nudges_since(local_day_start(now)) >= max_per_day:
-        return False
-    return True
+    return store.nudges_since(local_day_start(now)) < limits.max_per_day
 
 
-def nudge_possible(
-    store: Store,
-    *,
-    session_id: str,
-    turn_row: int,
-    now: datetime,
-    cooldown_minutes: int,
-    max_per_day: int,
+def should_nudge(
+    store: Store, *, session_id: str, turn_row: int, goal: Optional[int], confidence: float, now: datetime,
+    limits: Limits,
 ) -> bool:
+    if goal != 0 or confidence < limits.min_confidence:  # condition 1
+        return False
+    return _streak_open(store, session_id, turn_row, now, limits)
+
+
+def nudge_possible(store: Store, *, session_id: str, turn_row: int, now: datetime, limits: Limits) -> bool:
     """Could this turn nudge at all, whatever its label? Decides whether to hold the turn."""
-    previous = store.previous_classified(session_id, turn_row)
-    if previous is None:
+    if store.previous_classified(session_id, turn_row) is None:
         # the previous request may still be labeling in the background: wait only if it is recent
         last = store.previous_user_turn(session_id, turn_row)
         if last is None or last["goal"] is not None or last.get("source") == "inherited":
             return False
         return now - parse_iso(last["ts"]) <= STREAK_WINDOW
-    if previous["goal"] != 0 or previous.get("decision"):
-        return False
-    if now - parse_iso(previous["ts"]) > STREAK_WINDOW:
-        return False
-    last_do_now = store.last_do_now(session_id)
-    if last_do_now and last_do_now.get("decided_at"):
-        if now - parse_iso(last_do_now["decided_at"]) < timedelta(minutes=cooldown_minutes):
-            return False
-    return store.nudges_since(local_day_start(now)) < max_per_day
+    return _streak_open(store, session_id, turn_row, now, limits)
 
 
 def nudge_context(goals: list[dict[str, Any]], closest_goal: int, lang: str) -> str:
@@ -115,7 +100,7 @@ class SessionState:
     pending_turn: Optional[str] = None  # turn_id that carried the nudge
     answer_turn: Optional[str] = None  # the next turn, which answers a text nudge
     clarify_turns: set[str] = field(default_factory=set)
-    notes: dict[str, str] = field(default_factory=dict)  # turn_id -> 🧭 line to append (late label)
+    notes: dict[str, tuple[int, str]] = field(default_factory=dict)  # turn_id -> (row, 🧭 line) for a late label
 
 
 class SessionStates:
@@ -142,7 +127,3 @@ class SessionStates:
     def peek(self, session_id: str) -> Optional[SessionState]:
         with self._lock:
             return self._states.get(session_id)
-
-    def all(self) -> list[tuple[str, SessionState]]:
-        with self._lock:
-            return list(self._states.items())

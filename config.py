@@ -42,7 +42,3 @@ def get(ctx: Any, key: str) -> Any:
         return default
     return raw
 
-
-def snapshot(ctx: Any) -> dict[str, Any]:
-    """All settings at once (used by the panel and the eval runner)."""
-    return {key: get(ctx, key) for key in DEFAULTS}

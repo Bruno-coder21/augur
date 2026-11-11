@@ -51,20 +51,12 @@ def register(ctx):
         defaults={"reasoning_effort": "low", "timeout": 60},
     )
 
-    ctx.register_hook("pre_llm_call", app.on_pre_llm_call)
-    ctx.register_hook("post_llm_call", app.on_post_llm_call)
-    ctx.register_hook("post_api_request", app.on_post_api_request)
-    ctx.register_hook("post_auxiliary_call", app.on_post_auxiliary_call)
-    ctx.register_hook("pre_tool_call", app.on_pre_tool_call)
-    ctx.register_hook("transform_llm_output", app.on_transform_llm_output)
+    for hook in HOOKS:  # each hook is Augur.on_<hook name>
+        ctx.register_hook(hook, getattr(app, f"on_{hook}"))
 
     handlers = make_handlers(app)
-    for name, schema in (
-        ("augur_park", schemas.AUGUR_PARK),
-        ("augur_queue", schemas.AUGUR_QUEUE),
-        ("augur_done", schemas.AUGUR_DONE),
-        ("augur_report", schemas.AUGUR_REPORT),
-    ):
+    for name in TOOLS:
+        schema = getattr(schemas, name.upper())
         ctx.register_tool(name=name, toolset="augur", schema=schema, handler=handlers[name], emoji="🧭")
 
     commands = Commands(app)

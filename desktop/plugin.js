@@ -89,7 +89,7 @@ function Chip({ store }) {
   }
   const label = !status || !status.has_goals
     ? `🧭 ${tr('noGoals')}`
-    : `🧭 ${status.current_goal ? `${status.current_goal} · ` : ''}${tr('onGoals', status.on_goals_pct)}`
+    : `🧭 ${status.current_goal ? `${status.current_goal} · ` : ''}${status.on_goals_pct == null ? '–' : tr('onGoals', status.on_goals_pct)}`
   return jsxs(Popover, { children: [
     jsx(Tip, { label: tr('tip'), children: jsx(PopoverTrigger, { asChild: true, children: jsx('button', {
       type: 'button',

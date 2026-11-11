@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
 from . import privacy
+from .metering import usage_tokens
 
 log = logging.getLogger("augur.classifier")
 
@@ -68,10 +69,6 @@ class Result:
     summary60: str
     latency: float
     tokens: int = 0
-
-    @property
-    def is_detour(self) -> bool:
-        return self.goal == 0
 
 
 def build_input(
@@ -143,18 +140,13 @@ def previous_user_messages(conversation_history: Any, limit: int = 2) -> list[st
     return users[-(limit + 1) : -1] if len(users) > 1 else []
 
 
-def _usage_tokens(usage: Any) -> int:
-    if usage is None:
-        return 0
-    get = usage.get if isinstance(usage, dict) else (lambda k, d=None: getattr(usage, k, d))
-    total = get("total_tokens", None)
-    if total:
-        return int(total)
-    return int(get("input_tokens", 0) or 0) + int(get("output_tokens", 0) or 0)
-
-
 class Classifier:
-    """Runs model calls on a dedicated executor and enforces the time budget."""
+    """Runs model calls on a dedicated executor and enforces the time budget.
+
+    A late answer is delivered from the worker itself, inside the copied context
+    (so the profile scope Hermes keeps in ContextVars still applies), before the
+    call counts as finished. ``wait_idle`` therefore never races a delivery.
+    """
 
     def __init__(self, llm_getter: Callable[[], Any], budget: float = BUDGET_SECONDS, workers: int = 4):
         self._llm_getter = llm_getter
@@ -180,11 +172,11 @@ class Classifier:
                 purpose="augur: label a request against the weekly goals",
                 task=TASK,
             )
+            latency = time.monotonic() - started
+            return parse(getattr(out, "parsed", None), latency, usage_tokens(getattr(out, "usage", None)))
         except Exception as exc:  # provider error, schema mismatch, trust error...
             log.info("augur classifier call failed: %s: %.300s", type(exc).__name__, exc)
             return None
-        latency = time.monotonic() - started
-        return parse(getattr(out, "parsed", None), latency, _usage_tokens(getattr(out, "usage", None)))
 
     def classify(
         self,
@@ -203,41 +195,54 @@ class Classifier:
         """
         if not self._inflight.acquire(blocking=False):
             return None, "busy"  # stay silent rather than queue up
-        ctx = contextvars.copy_context()  # keep profile/secret scope for ctx.llm
+        lock = threading.Lock()
+        slot: dict[str, Any] = {"done": False, "on_late": None if wait else on_late}
+
+        def job() -> Optional[Result]:
+            result = self.call(goals, corrections, history, message)
+            with lock:
+                slot["done"] = True
+                late = slot["on_late"]
+            if late is not None:
+                _deliver(late, result)
+            return result
+
+        ctx = contextvars.copy_context()  # keep profile/secret scope for ctx.llm and the late delivery
         try:
-            future: Future = self._executor.submit(ctx.run, self.call, goals, corrections, history, message)
+            future: Future = self._executor.submit(ctx.run, job)
         except Exception:
             self._inflight.release()
             return None, "fail"
-        future.add_done_callback(lambda _f: self._inflight.release())
         with self._pending_lock:
             self._pending.add(future)
-        future.add_done_callback(self._forget)
+        future.add_done_callback(self._finish)
         if not wait:
-            if on_late is not None:
-                future.add_done_callback(lambda f: _deliver_late(f, on_late))
             return None, "async"
         try:
             result = future.result(timeout=self.budget)
         except FutureTimeout:
-            if on_late is not None:
-                future.add_done_callback(lambda f: _deliver_late(f, on_late))
+            with lock:
+                finished = slot["done"]
+                if not finished:
+                    slot["on_late"] = on_late
+            if finished and on_late is not None:  # it finished in the instant after the timeout
+                _deliver(on_late, future.result())
             return None, "late"
         except Exception:
             return None, "fail"
         return result, ("ok" if result is not None else "fail")
 
-    def _forget(self, future: Future) -> None:
+    def _finish(self, future: Future) -> None:
+        self._inflight.release()
         with self._pending_lock:
             self._pending.discard(future)
 
     def wait_idle(self, timeout: float = 5.0) -> bool:
-        """Block until every submitted call has finished (tests and the eval runner)."""
+        """Block until every submitted call (and its late delivery) has finished."""
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             with self._pending_lock:
                 if not self._pending:
-                    time.sleep(0.01)  # let done-callbacks (late delivery) finish
                     return True
             time.sleep(0.01)
         return False
@@ -246,8 +251,8 @@ class Classifier:
         self._executor.shutdown(wait=False, cancel_futures=True)
 
 
-def _deliver_late(future: Future, on_late: Callable[[Optional[Result]], None]) -> None:
+def _deliver(on_late: Callable[[Optional[Result]], None], result: Optional[Result]) -> None:
     try:
-        on_late(future.result())
+        on_late(result)
     except Exception as exc:
         log.info("augur late classification dropped: %s", type(exc).__name__)

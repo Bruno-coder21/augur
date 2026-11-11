@@ -14,7 +14,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Optional
 
-from . import strings
+from . import privacy, strings
 from .assets import palette
 from .metering import human_tokens
 from .store import Store
@@ -78,7 +78,8 @@ def week_stats(store: Store, now: datetime, lang: str = "en") -> WeekStats:
     start = now - timedelta(days=7)
     end = now + timedelta(seconds=1)
     goals = store.goals()
-    turns = [t for t in store.turns_between(start, end) if t["goal"] is not None]
+    window = store.turns_between(start, end)
+    turns = [t for t in window if t["goal"] is not None]
     rows = [GoalRow(slot=g["slot"], name=g["name"], planned=int(g["planned_pct"])) for g in goals]
     rows.append(GoalRow(slot=0, name=strings.t("panel_detours", lang)))
     by_slot = {r.slot: r for r in rows}
@@ -102,7 +103,7 @@ def week_stats(store: Store, now: datetime, lang: str = "en") -> WeekStats:
         closed=store.queue_closed_between(start, end),
         corrections=store.corrections_between(start, end),
         self_tokens=store.self_tokens_between(start, end),
-        has_demo=any(t["source"] == "demo" for t in store.turns_between(start, end)),
+        has_demo=any(t["source"] == "demo" for t in window),
         detours=detours,
     )
 
@@ -160,10 +161,17 @@ def _empty_queue_line(stats: WeekStats, lang: str) -> str:
 
 
 def prune_files(data_dir: Path, now: datetime, report_days: int = 56, draft_days: int = 30) -> int:
-    """Retention for files: report PNGs after 8 weeks, drafts after 30 days."""
+    """Retention for files: report PNGs after 8 weeks, drafts after 30 days.
+
+    Never follows a symlinked folder out of the plugin data dir.
+    """
     removed = 0
+    root = os.path.realpath(data_dir)
     for folder, pattern, days in ((data_dir, "report-*.png", report_days), (data_dir / "drafts", "*", draft_days)):
-        if not folder.is_dir():
+        if not folder.is_dir() or folder.is_symlink():
+            continue
+        real = os.path.realpath(folder)
+        if os.path.commonpath([real, root]) != root:
             continue
         cutoff = now.timestamp() - days * 86400
         for path in folder.glob(pattern):
@@ -197,9 +205,10 @@ def render_text(stats: WeekStats, lang: str) -> str:
         out.append("  " + _empty_queue_line(stats, lang))
     for item in stats.closed:
         mark = {"done": "✓", "needs_you": "●", "dropped": "✗"}.get(item["status"], "·")
-        line = f"  {mark} {item['summary60']}"
-        if item.get("result_line"):
-            line += f" — {item['result_line']}"
+        line = f"  {mark} {privacy.inert(item['summary60'])}"
+        reason = item.get("result_line") or (strings.t("dropped_stale", lang) if item["status"] == "dropped" else "")
+        if reason:
+            line += f" — {privacy.inert(reason)}"
         out.append(line)
     out.append("")
     out.append(strings.t("report_footer", lang, tokens=human_tokens(stats.self_tokens), corrections=stats.corrections))
@@ -254,14 +263,16 @@ def render_png(stats: WeekStats, path: Path, lang: str = "en") -> Path:
 
     def text(x, y, s, px, color=palette.TEXT, weight="normal", ha="left", va="top"):
         px = max(px, MIN_TEXT_PX)
+        # parse_math=False: a "$" in a name or summary must not switch to math mode (or crash)
         return ax.text(
-            x, y, s, fontsize=_pt(px), color=color, fontweight=weight, ha=ha, va=va, family="DejaVu Sans"
+            x, y, privacy.inert(s), fontsize=_pt(px), color=color, fontweight=weight, ha=ha, va=va,
+            family="DejaVu Sans", parse_math=False,
         )
 
     # --- header: vector compass + title -------------------------------------------
     cx, cy, r = MARGIN + 24, MARGIN + 24, 24
     ax.add_patch(Circle((cx, cy), r, fill=False, lw=3, ec=palette.TEXT_MUTED))
-    ax.add_patch(Polygon([(cx, cy - r + 5), (cx + 7, cy), (cx - 7, cy)], closed=True, fc=palette.GOAL_COLORS[1], ec="none"))
+    ax.add_patch(Polygon([(cx, cy - r + 5), (cx + 7, cy), (cx - 7, cy)], closed=True, fc=palette.TEXT, ec="none"))
     ax.add_patch(Polygon([(cx, cy + r - 5), (cx + 7, cy), (cx - 7, cy)], closed=True, fc=palette.TEXT_MUTED, ec="none"))
     text(MARGIN + 64, MARGIN + 6, strings.t("report_title", lang, date=week_label(stats, lang)), 30, palette.TEXT_MUTED)
     y = MARGIN + 80

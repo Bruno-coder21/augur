@@ -73,8 +73,13 @@ def test_t_never_raises():
 
 
 def test_no_bytecode_or_binaries_tracked():
-    bad = [p for p in REPO.rglob("*") if p.suffix in {".pyc", ".pyo", ".so", ".dll", ".exe", ".bin"}
-           and ".venv" not in p.parts and "__pycache__" not in p.parts]
+    """Catalog rule 17: nothing compiled is committed (checks what git tracks, not the disk)."""
+    import subprocess as sp  # test-only: the plugin itself never runs a subprocess
+
+    if not (REPO / ".git").exists():
+        pytest.skip("not a git checkout")
+    tracked = sp.run(["git", "ls-files"], cwd=REPO, capture_output=True, text=True, check=True).stdout.split()
+    bad = [p for p in tracked if p.endswith((".pyc", ".pyo", ".so", ".dll", ".dylib", ".exe", ".bin", ".whl"))]
     assert bad == []
 
 

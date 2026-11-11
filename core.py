@@ -12,15 +12,20 @@ import json
 import logging
 import os
 import re
+from contextvars import ContextVar
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable, Optional
 
 from . import classifier as clf
 from . import config, friday, insight, metering, nudge, privacy, report, strings
-from .store import Store, iso, parse_iso, utcnow
+from .store import Store, default_data_dir, iso, parse_iso, utcnow
 
 log = logging.getLogger("augur")
+
+# Set while the developer eval runs: its model calls are not Augur's runtime cost.
+# A ContextVar (not a flag on the instance) so other sessions keep being metered meanwhile.
+EVALUATING: ContextVar[bool] = ContextVar("augur_evaluating", default=False)
 
 # Surfaces with nobody there to answer a question: never labeled, never nudged.
 UNATTENDED_PLATFORMS = frozenset({"cron", "kanban", "webhook", "webhooks", "api", "api_server", "batch", "scheduler"})
@@ -49,7 +54,6 @@ class Augur:
         self.sessions = nudge.SessionStates()
         self.classifier = clf.Classifier(lambda: self.ctx.llm, budget=budget)
         self.fridays = friday.FridayRuns(self._cron, self._friday_jobs)
-        self.evaluating = False
 
     def close(self) -> None:
         self.classifier.shutdown()
@@ -57,7 +61,7 @@ class Augur:
 
     # ------------------------------------------------------------------ helpers
     def _cron(self) -> Any:
-        return self.ctx.current_cron_execution()
+        return self.ctx.current_cron_execution()  # wrapped by FridayRuns.current(), which never raises
 
     def _friday_jobs(self) -> set[str]:
         try:
@@ -68,17 +72,23 @@ class Augur:
     def _remember_friday_job(self, job_id: Any) -> None:
         if not job_id:
             return
-        jobs = [j for j in json.loads(self.store.meta_get("friday_jobs") or "[]") if j != str(job_id)]
+        jobs = [j for j in self._friday_jobs() if j != str(job_id)]
         self.store.meta_set("friday_jobs", json.dumps((jobs + [str(job_id)])[-10:]))
 
     def _health(self, outcome: str) -> None:
         """Rolling record of the last classifier outcomes (o=ok, l=late, f=fail)."""
+        code = {"ok": "o", "late": "l"}.get(outcome, "f")
         try:
-            code = {"ok": "o", "late": "l"}.get(outcome, "f")
-            history = (self.store.meta_get("clf_health") or "") + code
-            self.store.meta_set("clf_health", history[-HEALTH_WINDOW:])
+            self.store.meta_update("clf_health", lambda old: ((old or "") + code)[-HEALTH_WINDOW:])
         except Exception:
             pass
+
+    def _limits(self) -> nudge.Limits:
+        return nudge.Limits(
+            min_confidence=config.get(self.ctx, "min_confidence"),
+            cooldown_minutes=config.get(self.ctx, "nudge_cooldown_minutes"),
+            max_per_day=config.get(self.ctx, "max_nudges_per_day"),
+        )
 
     def health(self) -> tuple[int, int]:
         """(slow or failed, total) over the last classifier calls."""
@@ -88,8 +98,6 @@ class Augur:
     @property
     def data_dir(self) -> Path:
         if self._data_dir is None:
-            from .store import default_data_dir
-
             self._data_dir = default_data_dir()
         return self._data_dir
 
@@ -125,7 +133,7 @@ class Augur:
     ) -> Optional[dict[str, str]]:
         try:
             if str(platform or "").lower() in UNATTENDED_PLATFORMS or os.environ.get("HERMES_KANBAN_TASK"):
-                if self._cron() is None:
+                if self.fridays.current() is None:
                     return None
             return self._pre_llm_call(session_id, user_message, conversation_history, turn_id, parent_session_id)
         except Exception as exc:
@@ -134,7 +142,7 @@ class Augur:
 
     def _pre_llm_call(self, session_id, user_message, conversation_history, turn_id, parent_session_id):
         message = privacy.message_text(user_message)
-        run = self._cron()
+        run = self.fridays.current()
         if run is not None:
             if friday.MARKER in message:
                 self.fridays.mark(getattr(run, "execution_id", ""))
@@ -186,19 +194,17 @@ class Augur:
         goals = self.store.goals()
         # Only hold the turn when this request could trigger a nudge (the previous one was an
         # open detour). Otherwise label it in the background: zero added latency.
+        limits = self._limits()
         wait = not answering and nudge.nudge_possible(
-            self.store,
-            session_id=session_id,
-            turn_row=row,
-            now=now,
-            cooldown_minutes=config.get(self.ctx, "nudge_cooldown_minutes"),
-            max_per_day=config.get(self.ctx, "max_nudges_per_day"),
+            self.store, session_id=session_id, turn_row=row, now=now, limits=limits
         )
 
         def on_late(late: Optional[clf.Result]) -> None:
             if not wait:  # not held, but still measured: would it have made the 1.5 s budget?
                 self._health("fail" if late is None else ("late" if late.latency > self.classifier.budget else "ok"))
-            goal = self._record(row, late, recent_prev, source="background" if wait else "live", session_id=session_id)
+            # the previous request may have been labeled meanwhile: read it again
+            prev = self.store.get_turn(recent_prev["id"]) if recent_prev else None
+            goal = self._record(row, late, prev, source="background" if wait else "live", session_id=session_id)
             if wait and late is not None and goal == 0:
                 self._late_nudge(state, row, turn_id, late, goals, session_id)
 
@@ -218,15 +224,8 @@ class Augur:
         if goal is None or answering:
             return None
         if not nudge.should_nudge(
-            self.store,
-            session_id=session_id,
-            turn_row=row,
-            goal=goal,
-            confidence=result.confidence,
-            now=now,
-            min_confidence=config.get(self.ctx, "min_confidence"),
-            cooldown_minutes=config.get(self.ctx, "nudge_cooldown_minutes"),
-            max_per_day=config.get(self.ctx, "max_nudges_per_day"),
+            self.store, session_id=session_id, turn_row=row, goal=goal, confidence=result.confidence, now=now,
+            limits=limits,
         ):
             return None
         self.store.update_turn(row, nudged=1)
@@ -234,23 +233,16 @@ class Augur:
         return {"context": nudge.nudge_context(goals, result.closest_goal, self.lang())}
 
     def _late_nudge(self, state, row: int, turn_id: str, result: clf.Result, goals, session_id: str) -> None:
-        """The label came after the agent started: no question, but a 🧭 line under the reply."""
+        """The label came after the agent started: no question, but a 🧭 line under the reply.
+
+        Only queued here; it counts as a nudge when ``transform_llm_output`` actually shows it.
+        """
         try:
-            if not turn_id or not nudge.should_nudge(
-                self.store,
-                session_id=session_id,
-                turn_row=row,
-                goal=0,
-                confidence=result.confidence,
-                now=self.clock(),
-                min_confidence=config.get(self.ctx, "min_confidence"),
-                cooldown_minutes=config.get(self.ctx, "nudge_cooldown_minutes"),
-                max_per_day=config.get(self.ctx, "max_nudges_per_day"),
+            if turn_id and nudge.should_nudge(
+                self.store, session_id=session_id, turn_row=row, goal=0, confidence=result.confidence,
+                now=self.clock(), limits=self._limits(),
             ):
-                return
-            # the user did it anyway: count the nudge and start the quiet time, like "Do it now"
-            self.store.update_turn(row, nudged=1, decision="do_now", decided_at=iso(self.clock()))
-            state.notes[turn_id] = nudge.nudge_note(goals, result.closest_goal, self.lang())
+                state.notes[turn_id] = (row, nudge.nudge_note(goals, result.closest_goal, self.lang()))
         except Exception as exc:
             log.debug("augur late nudge skipped: %s", exc)
 
@@ -289,9 +281,12 @@ class Augur:
             "has_goals": True,
             "language": lang,
             "current_goal": current,
-            "on_goals_pct": (100 - stats.detour_pct) if stats.counted else 0,
+            "on_goals_pct": (100 - stats.detour_pct) if stats.counted else None,
             "counted": stats.counted,
-            "rows": [{"slot": r.slot, "name": r.name, "pct": r.pct, "planned": r.planned} for r in stats.rows],
+            "rows": [
+                {"slot": r.slot, "name": r.name, "pct": r.pct, "planned": r.planned, "tokens": r.tokens}
+                for r in stats.rows
+            ],
             "parked": stats.parked,
             "hidden": stats.hidden,
             "has_demo": stats.has_demo,
@@ -317,6 +312,8 @@ class Augur:
     def on_post_llm_call(self, session_id: str = "", turn_id: str = "", **_: Any) -> None:
         try:
             state = self.sessions.peek(session_id) if session_id else None
+            if state is not None and turn_id:
+                state.notes.pop(turn_id, None)  # a note not shown by now is never shown, never counted
             if state is None or state.pending_row is None:
                 return None
             if turn_id == state.pending_turn:
@@ -346,7 +343,7 @@ class Augur:
 
     def on_post_auxiliary_call(self, aux_task: str = "", usage: Any = None, **_: Any) -> None:
         try:
-            if aux_task in metering.AUGUR_TASKS and not self.evaluating:  # the dev eval is not runtime cost
+            if aux_task in metering.AUGUR_TASKS and not EVALUATING.get():  # the dev eval is not runtime cost
                 tokens = metering.usage_tokens(usage)
                 if tokens:
                     self.store.self_cost_add(aux_task, tokens, self.clock())
@@ -364,7 +361,8 @@ class Augur:
             in_friday = self.fridays.active()
             if not in_friday:
                 return None
-            if friday.allowed(tool_name, args, self.drafts_dir):
+            drafts = self.drafts_dir
+            if friday.drafts_ok(drafts, self.data_dir) and friday.allowed(tool_name, args, drafts):
                 return None
             return {"action": "block", "message": strings.t("friday_blocked", self.lang())}
         except Exception as exc:
@@ -378,13 +376,20 @@ class Augur:
     ) -> Optional[str]:
         try:
             state = self.sessions.peek(session_id) if session_id else None
-            note = state.notes.pop(turn_id, None) if state is not None and turn_id else None
-            if note and isinstance(response_text, str) and response_text.strip():
+            queued = state.notes.pop(turn_id, None) if state is not None and turn_id else None
+            if queued and isinstance(response_text, str) and response_text.strip():
+                row, note = queued
+                # shown now, so it counts: the user did it anyway, so quiet time starts like "Do it now"
+                self.store.update_turn(row, nudged=1, decision="do_now", decided_at=iso(self.clock()))
                 return response_text.rstrip() + "\n\n" + note
             execution = self.fridays.execution_id()
-            if not execution or self.store.meta_get("report_execution") != execution:
-                return None  # only a report built during *this* run is ever attached
-            return friday.ensure_media(response_text, self.store.meta_get("last_report_path"))
+            if not execution:
+                return None
+            if self.store.meta_get("report_execution") == execution:
+                # Augur writes the run's last message itself: caption + this run's report image
+                return friday.final_reply(self.store.meta_get("report_caption"), self.store.meta_get("last_report_path"))
+            # no report this run: deliver the model's text, but nothing in it can attach a file
+            return privacy.inert(response_text) if isinstance(response_text, str) else None
         except Exception as exc:
             log.warning("augur transform skipped: %s", exc)
             return None
@@ -421,7 +426,8 @@ class Augur:
         hidden = self.hidden_priority(stats, compute=True)
         out = report.build(self.store, self.data_dir, now, lang, hidden)
         execution = self.fridays.execution_id()
-        if out.get("path") and execution:
+        if execution:
+            self.store.meta_set("report_caption", out["caption"])
             self.store.meta_set("report_execution", execution)
         return out
 

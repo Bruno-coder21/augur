@@ -17,7 +17,7 @@ def _start_friday(app, execution_id="exec-1"):
 
 def test_marker_marks_only_bussola_runs(make_app):
     app = make_app()
-    app.ctx.cron = FakeCron(execution_id="other-job")
+    app.ctx.cron = FakeCron(execution_id="other-job", job_id="job-inbox", job_name="Inbox digest")
     turn(app, "Summarize my inbox every morning", session="cron_s", turn_id="x")
     assert not app.fridays.active()
     assert app.on_pre_tool_call(tool_name="terminal", args={"command": "ls"}) is None
@@ -90,6 +90,9 @@ def test_media_line_added_only_in_friday_run_and_only_when_missing(make_app):
     app.store.meta_set("last_report_path", str(png))
     assert app.on_transform_llm_output(response_text="hello") is None  # not in a Friday run
     _start_friday(app)
+    # a report built before this run (e.g. last week's) is never attached
+    assert app.on_transform_llm_output(response_text="🧭 Your week: 24% went to detours.") is None
+    app.store.meta_set("report_execution", "exec-1")
     out = app.on_transform_llm_output(response_text="🧭 Your week: 24% went to detours.")
     assert out.endswith(f"MEDIA:{png}")
     assert app.on_transform_llm_output(response_text=f"done\nMEDIA:{png}") is None
@@ -99,3 +102,30 @@ def test_ensure_media_requires_existing_absolute_file(tmp_path):
     assert friday.ensure_media("x", "relative.png") is None
     assert friday.ensure_media("x", str(tmp_path / "missing.png")) is None
     assert friday.ensure_media("x", None) is None
+
+
+def test_guard_armed_without_the_hook_by_job_name_or_remembered_job(make_app):
+    app = make_app()
+    # pre_llm_call skipped (timeout, reload): the blueprint job name still arms the guard
+    app.ctx.cron = FakeCron(execution_id="e9", job_id="j9", job_name="Bussola Friday run")
+    assert app.on_pre_tool_call(tool_name="terminal", args={"command": "ls"})["action"] == "block"
+    # a renamed job is recognised by the job id remembered from an earlier run
+    app.ctx.cron = FakeCron(execution_id="e10", job_id="j10", job_name="My weekly cleanup")
+    assert turn(app, friday.PROMPT, session="cron_s", turn_id="x") is None
+    app.fridays._ids.clear()  # simulate a plugin reload
+    app.ctx.cron = FakeCron(execution_id="e11", job_id="j10", job_name="My weekly cleanup")
+    assert app.on_pre_tool_call(tool_name="terminal", args={"command": "ls"})["action"] == "block"
+
+
+def test_report_built_in_the_run_is_attached(make_app, clock):
+    import pytest
+
+    pytest.importorskip("matplotlib")
+    from bussola import demo
+
+    app = make_app()
+    demo.load(app.store, clock())
+    _start_friday(app)
+    out = app.build_report()
+    assert app.store.meta_get("report_execution") == "exec-1"
+    assert app.on_transform_llm_output(response_text="done").endswith(f"MEDIA:{out['path']}")

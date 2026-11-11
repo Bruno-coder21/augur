@@ -10,23 +10,37 @@ from bussola import classifier as clf
 
 
 def test_slow_model_returns_none_fast_and_records_late_result(make_app):
-    app = make_app(lambda kw: detour(), delay=5.0, budget=1.5)
+    calls = {"n": 0}
+
+    def responder(kw):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            time.sleep(5.0)  # the 2nd detour in a row: the only time Bussola holds the turn
+        return detour()
+
+    app = make_app(responder, budget=1.5)
+    turn(app, "find a good recipe for a dinner party", turn_id="a")
     started = time.monotonic()
-    out = turn(app, "help me plan a weekend trip to Rome in April")
+    out = turn(app, "help me plan a weekend trip to Rome in April", turn_id="b", drain=False)
     elapsed = time.monotonic() - started
     assert out is None
     assert elapsed < 1.6
-    row = app.store.last_classified()
-    assert row is None  # nothing classified yet
-    deadline = time.monotonic() + 6
-    while time.monotonic() < deadline:
-        row = app.store.get_turn(1)
-        if row and row["goal"] is not None:
-            break
-        time.sleep(0.05)
+    assert app.store.get_turn(2)["goal"] is None  # nothing yet
+    app.classifier.wait_idle(10)
+    row = app.store.get_turn(2)
     assert row["goal"] == 0
     assert row["source"] == "background"
     assert row["nudged"] == 0
+    assert app.health() == (1, 2)
+
+
+def test_first_request_never_holds_the_turn(make_app):
+    app = make_app(lambda kw: detour(), delay=1.0)
+    started = time.monotonic()
+    assert turn(app, "find a good recipe for a dinner party", drain=False) is None
+    assert time.monotonic() - started < 0.2  # labeled in the background, zero added latency
+    app.classifier.wait_idle(5)
+    assert app.store.get_turn(1)["goal"] == 0 and app.store.get_turn(1)["source"] == "live"
 
 
 def test_invalid_json_exception_and_parsed_none_are_silent(make_app):
@@ -126,3 +140,23 @@ def test_previous_user_messages_excludes_current_and_commands():
         {"role": "user", "content": "current"},
     ]
     assert clf.previous_user_messages(history) == ["second", "third"]
+
+
+def test_schemas_are_strict_mode_compatible():
+    """Anthropic structured outputs reject objects without additionalProperties: false."""
+    from bussola import commands, insight
+
+    def walk(node):
+        if isinstance(node, dict):
+            if node.get("type") == "object":
+                assert node.get("additionalProperties") is False, node
+            for key in ("minimum", "maximum", "minLength", "maxLength"):
+                assert key not in node
+            for value in node.values():
+                walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                walk(value)
+
+    for schema in (clf.SCHEMA, insight.SCHEMA, commands.GOALS_SCHEMA):
+        walk(schema)

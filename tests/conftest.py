@@ -177,11 +177,15 @@ def make_app(tmp_path, clock):
         app.close()
 
 
-def turn(app: Bussola, message: str, session: str = "s1", turn_id: str = "t1", history: Optional[list] = None):
-    return app.on_pre_llm_call(
+def turn(app: Bussola, message: str, session: str = "s1", turn_id: str = "t1", history: Optional[list] = None,
+         drain: bool = True):
+    out = app.on_pre_llm_call(
         session_id=session, user_message=message, conversation_history=history or [], is_first_turn=False,
         model="m", platform="cli", turn_id=turn_id, task_id="task", parent_session_id="", sender_id="",
     )
+    if drain:  # background labels land before the test looks at the store
+        app.classifier.wait_idle(10)
+    return out
 
 
 __all__ = ["bussola", "FakeCtx", "FakeLLM", "FakeOut", "FakeCron", "detour", "on_goal", "turn", "GOALS"]

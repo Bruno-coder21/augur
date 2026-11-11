@@ -21,25 +21,28 @@ from . import privacy
 log = logging.getLogger("bussola.classifier")
 
 TASK = "bussola_classifier"
-PROMPT_VERSION = "v1"
+PROMPT_VERSION = "v2"
 BUDGET_SECONDS = 1.5
 CALL_TIMEOUT_SECONDS = 20
-MAX_TOKENS = 160
+MAX_TOKENS = 120
 SHORT_MESSAGE_CHARS = 15
 HISTORY_CHARS = 400
 MESSAGE_CHARS = 1200
 NEUTRAL = -1  # small talk, questions about the assistant itself: never counted, never nudged
 
+# Strict-mode friendly (Anthropic and OpenAI structured outputs): every object closes
+# with additionalProperties false, no numeric constraints (``parse`` validates ranges).
 SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
-        "goal": {"type": "integer", "minimum": -1, "maximum": 3},
-        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "goal": {"type": "integer", "description": "1, 2 or 3; 0 = detour; -1 = neutral"},
+        "confidence": {"type": "number", "description": "0 to 1"},
         "continues_previous": {"type": "boolean"},
-        "closest_goal": {"type": "integer", "minimum": 1, "maximum": 3},
+        "closest_goal": {"type": "integer", "description": "1, 2 or 3"},
         "summary60": {"type": "string"},
     },
     "required": ["goal", "confidence", "continues_previous", "closest_goal", "summary60"],
+    "additionalProperties": False,
 }
 
 INSTRUCTIONS = """You label ONE request a user sent to their AI agent, against the user's 3 goals for this week.
@@ -51,7 +54,7 @@ Answer with JSON only:
 - continues_previous: true when the message only continues the previous request (a follow-up, "shorter", "now in Portuguese", "try again").
 - closest_goal: the goal (1-3) the request is nearest to, even when it is a detour.
 - confidence: 0 to 1. Use below 0.6 when you are unsure. A wrong "detour" annoys the user more than a missed one, so only call something a detour when it clearly fits none of the goals.
-- summary60: a neutral summary of the request in at most 60 characters, in the request's language, without names, numbers or secrets.
+- summary60: 3 to 6 words naming the task, in the request's language, without names, numbers or secrets.
 
 When a request mixes a goal and a detour, label the main intent."""
 
@@ -158,6 +161,8 @@ class Classifier:
         self.budget = budget
         self._executor = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="bussola-clf")
         self._inflight = threading.BoundedSemaphore(workers * 2)
+        self._pending: set[Future] = set()
+        self._pending_lock = threading.Lock()
 
     def call(self, goals, corrections, history, message) -> Optional[Result]:
         """Blocking model call; never raises."""
@@ -176,7 +181,7 @@ class Classifier:
                 task=TASK,
             )
         except Exception as exc:  # provider error, schema mismatch, trust error...
-            log.info("bussola classifier call failed: %s", type(exc).__name__)
+            log.info("bussola classifier call failed: %s: %.300s", type(exc).__name__, exc)
             return None
         latency = time.monotonic() - started
         return parse(getattr(out, "parsed", None), latency, _usage_tokens(getattr(out, "usage", None)))
@@ -188,25 +193,54 @@ class Classifier:
         history,
         message,
         on_late: Optional[Callable[[Optional[Result]], None]] = None,
-    ) -> Optional[Result]:
-        """Wait at most ``budget`` seconds. A late answer goes to ``on_late`` instead."""
+        wait: bool = True,
+    ) -> tuple[Optional[Result], str]:
+        """Wait at most ``budget`` seconds; returns ``(result, outcome)``.
+
+        ``outcome`` is ``ok``, ``late`` (the answer goes to ``on_late`` instead),
+        ``fail`` (error or unusable answer), ``busy`` (too many calls in flight) or
+        ``async`` (``wait=False``: the turn is not held at all, the answer goes to ``on_late``).
+        """
         if not self._inflight.acquire(blocking=False):
-            return None  # too many calls in flight: stay silent rather than queue up
+            return None, "busy"  # stay silent rather than queue up
         ctx = contextvars.copy_context()  # keep profile/secret scope for ctx.llm
         try:
             future: Future = self._executor.submit(ctx.run, self.call, goals, corrections, history, message)
         except Exception:
             self._inflight.release()
-            return None
+            return None, "fail"
         future.add_done_callback(lambda _f: self._inflight.release())
+        with self._pending_lock:
+            self._pending.add(future)
+        future.add_done_callback(self._forget)
+        if not wait:
+            if on_late is not None:
+                future.add_done_callback(lambda f: _deliver_late(f, on_late))
+            return None, "async"
         try:
-            return future.result(timeout=self.budget)
+            result = future.result(timeout=self.budget)
         except FutureTimeout:
             if on_late is not None:
                 future.add_done_callback(lambda f: _deliver_late(f, on_late))
-            return None
+            return None, "late"
         except Exception:
-            return None
+            return None, "fail"
+        return result, ("ok" if result is not None else "fail")
+
+    def _forget(self, future: Future) -> None:
+        with self._pending_lock:
+            self._pending.discard(future)
+
+    def wait_idle(self, timeout: float = 5.0) -> bool:
+        """Block until every submitted call has finished (tests and the eval runner)."""
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            with self._pending_lock:
+                if not self._pending:
+                    time.sleep(0.01)  # let done-callbacks (late delivery) finish
+                    return True
+            time.sleep(0.01)
+        return False
 
     def shutdown(self) -> None:
         self._executor.shutdown(wait=False, cancel_futures=True)

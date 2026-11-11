@@ -46,6 +46,8 @@ def should_nudge(
     previous = store.previous_classified(session_id, turn_row)
     if previous is None or previous["goal"] != 0:
         return False
+    if previous.get("decision"):  # the last detour was already answered (parked or done): a new streak starts
+        return False
     if now - parse_iso(previous["ts"]) > STREAK_WINDOW:
         return False
     last_do_now = store.last_do_now(session_id)
@@ -55,6 +57,34 @@ def should_nudge(
     if store.nudges_since(local_day_start(now)) >= max_per_day:
         return False
     return True
+
+
+def nudge_possible(
+    store: Store,
+    *,
+    session_id: str,
+    turn_row: int,
+    now: datetime,
+    cooldown_minutes: int,
+    max_per_day: int,
+) -> bool:
+    """Could this turn nudge at all, whatever its label? Decides whether to hold the turn."""
+    previous = store.previous_classified(session_id, turn_row)
+    if previous is None:
+        # the previous request may still be labeling in the background: wait only if it is recent
+        last = store.previous_user_turn(session_id, turn_row)
+        if last is None or last["goal"] is not None or last.get("source") == "inherited":
+            return False
+        return now - parse_iso(last["ts"]) <= STREAK_WINDOW
+    if previous["goal"] != 0 or previous.get("decision"):
+        return False
+    if now - parse_iso(previous["ts"]) > STREAK_WINDOW:
+        return False
+    last_do_now = store.last_do_now(session_id)
+    if last_do_now and last_do_now.get("decided_at"):
+        if now - parse_iso(last_do_now["decided_at"]) < timedelta(minutes=cooldown_minutes):
+            return False
+    return store.nudges_since(local_day_start(now)) < max_per_day
 
 
 def nudge_context(goals: list[dict[str, Any]], closest_goal: int, lang: str) -> str:

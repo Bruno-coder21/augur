@@ -8,7 +8,10 @@ it cannot decide (see ``on_pre_tool_call``).
 
 from __future__ import annotations
 
+import json
 import logging
+import os
+import re
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -18,6 +21,16 @@ from . import config, friday, insight, metering, nudge, privacy, report, strings
 from .store import Store, iso, parse_iso, utcnow
 
 log = logging.getLogger("bussola")
+
+# Surfaces with nobody there to answer a question: never labeled, never nudged.
+UNATTENDED_PLATFORMS = frozenset({"cron", "kanban", "webhook", "webhooks", "api", "api_server", "batch", "scheduler"})
+# Short replies that carry no task of their own ("ok", "thanks"): not counted at all.
+_ACK_RE = re.compile(
+    r"^\s*(ok(ay)?|k|yes|yep|no|nope|thanks?( you)?|thx|ty|cool|great|nice|perfect|done|got it|sure|"
+    r"obrigad[oa]|valeu|vlw|sim|não|nao|beleza|blz|show|massa|perfeito|certo|entendi|tá|ta|👍|🙏|❤️)[\s!.?]*$",
+    re.IGNORECASE,
+)
+HEALTH_WINDOW = 20
 
 
 class Bussola:
@@ -35,7 +48,7 @@ class Bussola:
         self.clock = clock
         self.sessions = nudge.SessionStates()
         self.classifier = clf.Classifier(lambda: self.ctx.llm, budget=budget)
-        self.fridays = friday.FridayRuns(self._cron)
+        self.fridays = friday.FridayRuns(self._cron, self._friday_jobs)
 
     def close(self) -> None:
         self.classifier.shutdown()
@@ -44,6 +57,32 @@ class Bussola:
     # ------------------------------------------------------------------ helpers
     def _cron(self) -> Any:
         return self.ctx.current_cron_execution()
+
+    def _friday_jobs(self) -> set[str]:
+        try:
+            return set(json.loads(self.store.meta_get("friday_jobs") or "[]"))
+        except Exception:
+            return set()
+
+    def _remember_friday_job(self, job_id: Any) -> None:
+        if not job_id:
+            return
+        jobs = [j for j in json.loads(self.store.meta_get("friday_jobs") or "[]") if j != str(job_id)]
+        self.store.meta_set("friday_jobs", json.dumps((jobs + [str(job_id)])[-10:]))
+
+    def _health(self, outcome: str) -> None:
+        """Rolling record of the last classifier outcomes (o=ok, l=late, f=fail)."""
+        try:
+            code = {"ok": "o", "late": "l"}.get(outcome, "f")
+            history = (self.store.meta_get("clf_health") or "") + code
+            self.store.meta_set("clf_health", history[-HEALTH_WINDOW:])
+        except Exception:
+            pass
+
+    def health(self) -> tuple[int, int]:
+        """(slow or failed, total) over the last classifier calls."""
+        history = self.store.meta_get("clf_health") or ""
+        return sum(1 for c in history if c != "o"), len(history)
 
     @property
     def data_dir(self) -> Path:
@@ -80,9 +119,13 @@ class Bussola:
         conversation_history: Any = None,
         turn_id: str = "",
         parent_session_id: str = "",
+        platform: str = "",
         **_: Any,
     ) -> Optional[dict[str, str]]:
         try:
+            if str(platform or "").lower() in UNATTENDED_PLATFORMS or os.environ.get("HERMES_KANBAN_TASK"):
+                if self._cron() is None:
+                    return None
             return self._pre_llm_call(session_id, user_message, conversation_history, turn_id, parent_session_id)
         except Exception as exc:
             log.warning("bussola pre_llm_call skipped: %s", exc, exc_info=True)
@@ -94,6 +137,7 @@ class Bussola:
         if run is not None:
             if friday.MARKER in message:
                 self.fridays.mark(getattr(run, "execution_id", ""))
+                self._remember_friday_job(getattr(run, "job_id", ""))
                 self.store.meta_set("last_friday_run", iso(self.clock()))
             return None
         if parent_session_id or not session_id:
@@ -113,7 +157,18 @@ class Bussola:
         if answering:
             state.answer_turn = turn_id
 
-        row = self.store.insert_turn(ts=now, session_id=session_id, summary=message, source="live")
+        if answering and len(message.strip()) < 60:
+            # "Park it" / "do it now": the reply to a nudge is not a new request. Its tokens
+            # (the detour work, when the answer is "do it now") go to the nudged request.
+            if turn_id:
+                state.turn_rows[turn_id] = state.pending_row
+            return None
+
+        if len(message.strip()) < clf.SHORT_MESSAGE_CHARS and _ACK_RE.match(message):
+            return None  # "ok", "thanks": not a request, not counted, no row
+
+        # The row stores no user text: summary60 is written only from the model's summary.
+        row = self.store.insert_turn(ts=now, session_id=session_id, summary="", source="live")
         if turn_id:
             state.turn_rows[turn_id] = row
 
@@ -122,17 +177,38 @@ class Bussola:
 
         if len(message.strip()) < clf.SHORT_MESSAGE_CHARS:
             if recent_prev and recent_prev["goal"] is not None:
-                self.store.update_turn(row, goal=recent_prev["goal"], confidence=recent_prev["confidence"])
-            return None  # continuations never nudge
+                self.store.update_turn(
+                    row, goal=recent_prev["goal"], confidence=recent_prev["confidence"], source="inherited"
+                )
+            return None  # short follow-ups ("shorter") count for the same goal and never nudge
 
         goals = self.store.goals()
-        result = self.classifier.classify(
+        # Only hold the turn when this request could trigger a nudge (the previous one was an
+        # open detour). Otherwise label it in the background: zero added latency.
+        wait = not answering and nudge.nudge_possible(
+            self.store,
+            session_id=session_id,
+            turn_row=row,
+            now=now,
+            cooldown_minutes=config.get(self.ctx, "nudge_cooldown_minutes"),
+            max_per_day=config.get(self.ctx, "max_nudges_per_day"),
+        )
+
+        def on_late(late: Optional[clf.Result]) -> None:
+            if not wait:  # not held, but still measured: would it have made the 1.5 s budget?
+                self._health("fail" if late is None else ("late" if late.latency > self.classifier.budget else "ok"))
+            self._record(row, late, recent_prev, source="background" if wait else "live", session_id=session_id)
+
+        result, outcome = self.classifier.classify(
             goals,
             self.store.corrections_recent(8),
             clf.previous_user_messages(conversation_history),
             message,
-            on_late=lambda late: self._record(row, late, recent_prev, source="background", session_id=session_id),
+            on_late=on_late,
+            wait=wait,
         )
+        if outcome != "async":
+            self._health(outcome)
         if result is None:
             return None
         goal = self._record(row, result, recent_prev, source="live", session_id=session_id)
@@ -275,8 +351,9 @@ class Bussola:
 
     def on_transform_llm_output(self, response_text: str = "", **_: Any) -> Optional[str]:
         try:
-            if not self.fridays.active():
-                return None
+            execution = self.fridays.execution_id()
+            if not execution or self.store.meta_get("report_execution") != execution:
+                return None  # only a report built during *this* run is ever attached
             return friday.ensure_media(response_text, self.store.meta_get("last_report_path"))
         except Exception as exc:
             log.warning("bussola transform skipped: %s", exc)
@@ -293,22 +370,35 @@ class Bussola:
 
     def hidden_priority(self, stats: report.WeekStats, compute: bool) -> Optional[dict[str, Any]]:
         key = insight.cache_key(iso(stats.start)[:10], stats.detours)
-        hit, value = insight.cached(self.store, key)
+        hit, value = insight.cached(self.store, key, allow_pinned=stats.has_demo)
         if hit or not compute:
             return value
         value = insight.find(lambda: self.ctx.llm, stats.detours)
         insight.remember(self.store, key, value)
         return value
 
+    def _housekeeping(self, now: datetime) -> None:
+        if self.store.demo_is_stale(now):
+            self.store.clear_demo()  # a forgotten demo never leaks into real weeks
+        self.store.prune(now)
+        report.prune_files(self.data_dir, now)
+
     def build_report(self) -> dict[str, Any]:
         now = self.clock()
         lang = self.lang()
+        self._housekeeping(now)
         stats = report.week_stats(self.store, now, lang)
         hidden = self.hidden_priority(stats, compute=True)
-        return report.build(self.store, self.data_dir, now, lang, hidden)
+        out = report.build(self.store, self.data_dir, now, lang, hidden)
+        execution = self.fridays.execution_id()
+        if out.get("path") and execution:
+            self.store.meta_set("report_execution", execution)
+        return out
 
     def week(self) -> report.WeekStats:
         now = self.clock()
+        if self.store.demo_is_stale(now):
+            self.store.clear_demo()
         stats = report.week_stats(self.store, now, self.lang())
         stats.hidden = self.hidden_priority(stats, compute=False)
         return stats

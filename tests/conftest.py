@@ -154,9 +154,9 @@ class Clock:
 
 
 GOALS = [
-    {"name": "VDRI launch", "description": "pilot customers, pricing and the investor deck", "planned_pct": 50},
-    {"name": "Hackathons", "description": "build and submit the Hermes plugin", "planned_pct": 30},
-    {"name": "English", "description": "speaking and writing practice", "planned_pct": 20},
+    {"name": "Product launch", "description": "pilot customers, pricing and the investor deck", "planned_pct": 50},
+    {"name": "Hackathon", "description": "build and submit the Hermes plugin", "planned_pct": 30},
+    {"name": "Spanish", "description": "speaking and writing practice", "planned_pct": 20},
 ]
 
 

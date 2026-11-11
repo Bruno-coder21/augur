@@ -58,12 +58,12 @@ def test_secrets_are_redacted_before_storage(make_app):
 
 
 def test_parse_goals_variants():
-    assert [g["name"] for g in cmd_mod.parse_goals("launching VDRI, hackathons, English")] == [
-        "Launching VDRI", "Hackathons", "English"]
-    assert [g["name"] for g in cmd_mod.parse_goals("VDRI launch, hackathons and English")] == [
-        "VDRI launch", "Hackathons", "English"]
-    goals = cmd_mod.parse_goals('"VDRI launch: ship the beta" "Hackathons" "English"')
-    assert goals[0]["name"] == "VDRI launch" and "ship the beta" in goals[0]["description"]
+    assert [g["name"] for g in cmd_mod.parse_goals("launching the product, hackathon, Spanish")] == [
+        "Launching the product", "Hackathon", "Spanish"]
+    assert [g["name"] for g in cmd_mod.parse_goals("Product launch, hackathons and English")] == [
+        "Product launch", "Hackathons", "English"]
+    goals = cmd_mod.parse_goals('"Product launch: ship the beta" "Hackathon" "English"')
+    assert goals[0]["name"] == "Product launch" and "ship the beta" in goals[0]["description"]
     assert cmd_mod.parse_goals("just one big thing") is None
     assert cmd_mod.parse_split("a, b, c 50/30/20") == ("a, b, c", [50, 30, 20])
     assert not cmd_mod.valid_split([50, 30, 30])
@@ -71,7 +71,7 @@ def test_parse_goals_variants():
 
 def test_goals_inline_with_split(make_app):
     app = make_app(goals=False)
-    out = Commands(app).augur('goals "VDRI launch" "Hackathons" "English" 50/30/20')
+    out = Commands(app).augur('goals "Product launch" "Hackathon" "English" 50/30/20')
     assert "Goals saved" in out
     assert [g["planned_pct"] for g in app.store.goals()] == [50, 30, 20]
     assert app.ctx.asked == []
@@ -80,25 +80,25 @@ def test_goals_inline_with_split(make_app):
 def test_goals_ask_split_with_buttons(make_app):
     app = make_app(goals=False)
     app.ctx.choices = ["40/40/20"]
-    out = Commands(app).augur("goals launching VDRI, hackathons, English")
+    out = Commands(app).augur("goals launching the product, hackathon, Spanish")
     assert "Goals saved" in out
     question, choices = app.ctx.asked[0]
-    assert "Launching VDRI" in question and len(choices) == 4
+    assert "Launching the product" in question and len(choices) == 4
     assert [g["planned_pct"] for g in app.store.goals()] == [40, 40, 20]
 
 
 def test_goals_cancel_or_no_buttons_saves_nothing(make_app):
     app = make_app(goals=False)
-    out = Commands(app).augur("goals launching VDRI, hackathons, English")
+    out = Commands(app).augur("goals launching the product, hackathon, Spanish")
     assert "not saved" in out and not app.store.has_goals()
 
 
 def test_goals_free_text_uses_model_extraction(make_app):
-    extracted = {"goals": [{"name": "VDRI Launch", "description": "launch"},
+    extracted = {"goals": [{"name": "Product Launch", "description": "launch"},
                            {"name": "Hackathon", "description": "plugin"},
                            {"name": "English", "description": "practice"}]}
     app = make_app(lambda kw: extracted, goals=False)
-    out = Commands(app).augur("goals this week I mostly want to launch VDRI then the hackathon plus english 50/30/20")
+    out = Commands(app).augur("goals this week I mostly want to launch the product then the hackathon plus spanish 50/30/20")
     assert "Goals saved" in out
     assert app.ctx.llm.calls[-1]["task"] == "augur_classifier"
 
@@ -113,7 +113,7 @@ def test_panel_onboarding_then_panel(make_app):
     assert "/augur goals" in Commands(app).augur("")
     demo.load(app.store, app.clock())
     text = Commands(app).augur("", platform="telegram")
-    assert "VDRI launch" in text and "24%" in text and "\x1b[" not in text
+    assert "Product launch" in text and "24%" in text and "\x1b[" not in text
     block = text.split("```")[1].strip().splitlines()
     assert len(block) == 4 and max(len(line) for line in block) <= 36  # fits a phone in monospace
     assert "Hidden priority" in text
@@ -129,17 +129,17 @@ def test_fix_records_correction_used_in_next_prompt(make_app):
     turn(app, "polish the docs page for my Hermes plugin", turn_id="a")
     app.ctx.choices = ["2"]
     out = Commands(app).augur("fix", session_id="s1")
-    assert "Hackathons" in out
+    assert "Hackathon" in out
     assert app.store.get_turn(1)["goal"] == 2
     turn(app, "polish the README for my Hermes plugin", turn_id="b")
     prompt = app.ctx.llm.calls[-1]["input"][0]["text"]
-    assert '"Tune Hermes plugin docs" → 2 (Hackathons)' in prompt
+    assert '"Tune Hermes plugin docs" → 2 (Hackathon)' in prompt
 
 
 def test_fix_inline_and_nothing_to_fix(make_app):
     app = make_app(lambda kw: on_goal(1))
     assert "Nothing to fix" in Commands(app).augur("fix")
-    turn(app, "draft the pilot pricing tiers for VDRI")
+    turn(app, "draft the pilot pricing tiers for the launch")
     assert "Detour" in Commands(app).augur("fix detour")
     assert app.store.get_turn(1)["goal"] == 0
 
@@ -158,7 +158,7 @@ def test_pause_and_resume(make_app):
 
 def test_demo_load_and_clear_keeps_real_data(make_app):
     app = make_app(lambda kw: on_goal(1))
-    turn(app, "draft the pilot pricing tiers for VDRI")
+    turn(app, "draft the pilot pricing tiers for the launch")
     out = Commands(app).augur("demo")
     assert "45 requests" in out and "kept" in out
     assert app.ctx.llm.calls.__len__() == 1  # demo made no model call
@@ -219,9 +219,9 @@ def test_status_rpc_and_emit(make_app):
     assert app.rpc_status({}, session_id="s1")["on_goals_pct"] is None  # nothing counted yet: no "0%"
     turn(app, "write the pytest tests for the classifier")
     status = app.rpc_status({"session_id": "s1"})
-    assert status["current_goal"] == "Hackathons" and status["on_goals_pct"] == 100
+    assert status["current_goal"] == "Hackathon" and status["on_goals_pct"] == 100
     sid, event, payload = app.ctx.emitted[-1]
-    assert (sid, event) == ("s1", "status.changed") and payload["current_goal"] == "Hackathons"
+    assert (sid, event) == ("s1", "status.changed") and payload["current_goal"] == "Hackathon"
     import json
 
     json.dumps(status)  # JSON-safe for the RPC wire

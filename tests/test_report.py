@@ -37,7 +37,7 @@ def test_png_is_valid_portrait_and_small(make_app, clock):
 
     assert os.path.getsize(path) < 1_000_000
     assert "24%" in out["caption"] and "1 of 3" in out["caption"]
-    assert "VDRI website" in out["caption"]
+    assert "Personal website" in out["caption"]
 
 
 def test_text_fallback_without_matplotlib(make_app, clock, monkeypatch):
@@ -53,7 +53,7 @@ def test_text_fallback_without_matplotlib(make_app, clock, monkeypatch):
     monkeypatch.setattr(builtins, "__import__", no_mpl)
     out = json.loads(make_handlers(app)["augur_report"]({}))
     assert out["ok"] and "path" not in out
-    assert "detours" in out["text"] and "VDRI launch" in out["text"]
+    assert "detours" in out["text"] and "Product launch" in out["text"]
 
 
 def test_stale_parked_items_are_dropped(make_app, clock):
@@ -67,19 +67,19 @@ def test_stale_parked_items_are_dropped(make_app, clock):
 
 def _detours(app, clock, n):
     for i in range(n):
-        app.store.insert_turn(ts=clock() - timedelta(hours=i + 1), session_id="s", summary=f"VDRI website task {i}",
+        app.store.insert_turn(ts=clock() - timedelta(hours=i + 1), session_id="s", summary=f"Personal website task {i}",
                               goal=0, confidence=0.9)
 
 
 def test_hidden_priority_needs_five(make_app, clock):
-    answer = {"theme": "VDRI website", "count": 5, "examples": ["hero copy", "SEO"], "suggested_goal": "Ship it"}
+    answer = {"theme": "Personal website", "count": 5, "examples": ["hero copy", "SEO"], "suggested_goal": "Ship it"}
     app = make_app(lambda kw: answer)
     _detours(app, clock, 4)
     assert app.build_report()["caption"].count("Hidden priority") == 0
     assert app.ctx.llm.calls == []  # fewer than 5 detours: no model call at all
     _detours(app, clock, 1)
     out = app.build_report()
-    assert "Hidden priority spotted: \"VDRI website\"" in out["caption"]
+    assert "Hidden priority spotted: \"Personal website\"" in out["caption"]
     assert app.ctx.llm.calls[-1]["task"] == "augur_insight"
     calls = len(app.ctx.llm.calls)
     app.build_report()
@@ -104,7 +104,7 @@ def test_metering_normalises_usage():
 
 def test_tokens_land_on_the_turn_and_self_cost_is_recorded(make_app):
     app = make_app()
-    turn(app, "draft the pilot pricing tiers for VDRI", turn_id="t9")
+    turn(app, "draft the pilot pricing tiers for the launch", turn_id="t9")
     app.on_post_api_request(session_id="s1", turn_id="t9", usage={"prompt_tokens": 1000, "completion_tokens": 200})
     app.on_post_api_request(session_id="s1", turn_id="t9", usage={"input_tokens": 300, "output_tokens": 50})
     assert app.store.get_turn(1)["tokens"] == 1550

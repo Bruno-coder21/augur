@@ -19,7 +19,7 @@ FULL, EMPTY = "▇", "░"
 
 
 COMPACT_BAR = 10
-COMPACT_NAME = 12
+COMPACT_NAME = 14
 
 
 def _bar(pct: int, width: int = BAR_WIDTH) -> str:

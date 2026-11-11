@@ -105,7 +105,7 @@ def test_prompt_uses_blocks_task_and_redacts(make_app):
     text = call["input"][0]["text"]
     assert fake_key not in text
     assert "earlier message about pricing" in text
-    assert "VDRI launch" in text
+    assert "Product launch" in text
 
 
 def test_skips_slash_commands_subagents_cron_and_missing_goals(make_app):

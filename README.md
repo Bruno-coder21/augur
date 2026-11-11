@@ -26,15 +26,15 @@ An agent that can do anything makes it easy to do everything. One quick question
 ```
 🧭 Augur · Nov 5 – 11  (includes demo data)
 
-  VDRI launch  ▇▇▇▇▇▇░░░░░░░░░░░░░░   31% of 50% planned
-  Hackathons   ▇▇▇▇▇▇▇░░░░░░░░░░░░░   36% of 30% planned
-  English      ▇▇░░░░░░░░░░░░░░░░░░    9% of 20% planned
-  Detours      ▇▇▇▇▇░░░░░░░░░░░░░░░   24%
+  Product launch  ▇▇▇▇▇▇░░░░░░░░░░░░░░   31% of 50% planned
+  Hackathon       ▇▇▇▇▇▇▇░░░░░░░░░░░░░   36% of 30% planned
+  English         ▇▇░░░░░░░░░░░░░░░░░░    9% of 20% planned
+  Detours         ▇▇▇▇▇░░░░░░░░░░░░░░░   24%
 
   45 requests counted · 240.8k tokens
 
   Queue: 5 parked · no Friday run yet → /blueprint augur:friday
-  Hidden priority: "VDRI website" (6 requests) → /augur goals
+  Hidden priority: "Personal website" (6 requests) → /augur goals
   Augur itself used 1.2k tokens this week
 ```
 

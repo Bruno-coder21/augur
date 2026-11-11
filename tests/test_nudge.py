@@ -17,7 +17,7 @@ def test_second_detour_in_a_row_nudges_without_blocking(make_app):
     out = turn(app, "and a playlist for that dinner party", turn_id="b")
     assert set(out) == {"context"}  # never {"action": "block"}
     assert "Do it now" in out["context"] and "Park it" in out["context"]
-    assert "Hackathons" in out["context"]  # closest goal named
+    assert "Hackathon" in out["context"]  # closest goal named
     assert "augur_park" in out["context"]
     assert app.store.get_turn(2)["nudged"] == 1
 
@@ -40,7 +40,7 @@ def test_goal_between_detours_breaks_the_streak(make_app):
     answers = iter([detour(), on_goal(1), detour()])
     app = make_app(lambda kw: next(answers))
     turn(app, "find a good recipe for a dinner party", turn_id="a")
-    turn(app, "draft the pilot pricing tiers for VDRI", turn_id="b")
+    turn(app, "draft the pilot pricing tiers for the launch", turn_id="b")
     assert turn(app, "and a playlist for that dinner party", turn_id="c") is None
 
 
@@ -146,7 +146,7 @@ def test_late_label_appends_a_note_instead_of_waiting(make_app):
     assert time.monotonic() - started < 0.3
     app.classifier.wait_idle(5)
     out = app.on_transform_llm_output(response_text="Here is your playlist.", session_id="s1", turn_id="b")
-    assert out.startswith("Here is your playlist.") and "🧭" in out and "Hackathons" in out
+    assert out.startswith("Here is your playlist.") and "🧭" in out and "Hackathon" in out
     assert app.on_transform_llm_output(response_text="again", session_id="s1", turn_id="b") is None  # once
     row = app.store.get_turn(2)
     assert row["nudged"] == 1 and row["decision"] == "do_now"

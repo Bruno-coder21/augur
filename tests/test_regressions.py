@@ -34,14 +34,14 @@ def test_no_user_text_is_stored_when_labeling_fails(make_app):
 
 def test_model_summary_is_what_gets_stored(make_app):
     app = make_app(lambda kw: on_goal(1, summary="Pilot pricing tiers"))
-    turn(app, "Draft three pricing tiers for the VDRI pilot, with a discount for Acme Corp")
+    turn(app, "Draft three pricing tiers for the product launch, with a discount for Acme Corp")
     assert app.store.get_turn(1)["summary60"] == "Pilot pricing tiers"
 
 
 def test_forgotten_demo_expires_and_pinned_insight_only_with_demo(make_app, clock):
     app = make_app(lambda kw: on_goal(1))
     demo.load(app.store, clock())
-    assert app.week().hidden["theme"] == "VDRI website"
+    assert app.week().hidden["theme"] == "Personal website"
     clock.advance(days=8)
     stats = app.week()
     assert stats.hidden is None and not stats.has_demo
@@ -79,7 +79,7 @@ def test_acknowledgements_are_not_counted_and_inherited_rows_do_not_build_streak
 
 def test_fix_never_shows_another_sessions_request(make_app):
     app = make_app(lambda kw: on_goal(1, summary="Session A secret plan"))
-    turn(app, "draft the pilot pricing tiers for VDRI", session="A")
+    turn(app, "draft the pilot pricing tiers for the launch", session="A")
     out = Commands(app).augur("fix", session_id="B")
     assert "Session A" not in out and "Nothing to fix" in out
 
@@ -97,7 +97,7 @@ def test_unattended_surfaces_are_not_labeled(make_app, monkeypatch):
 def test_panel_warns_when_labels_are_slow(make_app):
     app = make_app(lambda kw: on_goal(1), delay=0.3, budget=0.05)
     for i in range(10):
-        turn(app, f"draft the pilot pricing tiers for VDRI v{i}", turn_id=f"t{i}")
+        turn(app, f"draft the pilot pricing tiers for the launch v{i}", turn_id=f"t{i}")
     bad, total = app.health()
     assert (bad, total) == (10, 10)
     assert "Pin a fast model" in Commands(app).augur("", platform="telegram")
@@ -117,7 +117,7 @@ def test_closed_store_never_reopens(make_app):
 
     with pytest.raises(RuntimeError):
         app.store.goals()
-    assert turn(app, "draft the pilot pricing tiers for VDRI") is None  # silent, no crash
+    assert turn(app, "draft the pilot pricing tiers for the launch") is None  # silent, no crash
 
 
 def test_caption_plural_and_eval_cost_not_counted(make_app, clock):

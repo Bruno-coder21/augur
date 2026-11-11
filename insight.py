@@ -22,19 +22,20 @@ MIN_COUNT = 5
 SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
-        "theme": {"type": ["string", "null"]},
+        "theme": {"type": "string", "description": "empty string when no theme covers 5 requests"},
         "count": {"type": "integer"},
         "examples": {"type": "array", "items": {"type": "string"}},
         "suggested_goal": {"type": "string"},
     },
     "required": ["theme", "count", "examples", "suggested_goal"],
+    "additionalProperties": False,
 }
 
 INSTRUCTIONS = """These are one week of requests a user made to their AI agent that fell OUTSIDE their 3 declared goals.
 Find the single largest group of requests that share one concrete theme (a project, a topic, an area of life), if any.
 
 Answer with JSON only:
-- theme: a short name for that theme (2 to 4 words), or null if no theme covers at least 5 requests.
+- theme: a short name for that theme (2 to 4 words), or an empty string if no theme covers at least 5 requests.
 - count: how many of the listed requests belong to it. Count only clear members.
 - examples: 2 short examples taken from the list (at most 40 characters each).
 - suggested_goal: the theme phrased as a weekly goal (at most 40 characters).
@@ -70,7 +71,7 @@ def find(
             task=TASK,
         )
     except Exception as exc:
-        log.info("bussola insight call failed: %s", type(exc).__name__)
+        log.info("bussola insight call failed: %s: %.300s", type(exc).__name__, exc)
         return None
     return validate(getattr(out, "parsed", None), len(detours))
 
@@ -94,7 +95,7 @@ def validate(parsed: Any, n_detours: int) -> Optional[dict[str, Any]]:
     }
 
 
-def cached(store: Any, key: str) -> tuple[bool, Optional[dict[str, Any]]]:
+def cached(store: Any, key: str, allow_pinned: bool = False) -> tuple[bool, Optional[dict[str, Any]]]:
     raw = store.meta_get("insight_cache")
     if not raw:
         return False, None
@@ -102,7 +103,9 @@ def cached(store: Any, key: str) -> tuple[bool, Optional[dict[str, Any]]]:
         data = json.loads(raw)
     except ValueError:
         return False, None
-    if data.get("key") != key and not data.get("pinned"):
+    if data.get("pinned"):
+        return (True, data.get("result")) if allow_pinned else (False, None)  # demo value: only with demo data
+    if data.get("key") != key:
         return False, None
     return True, data.get("result")
 

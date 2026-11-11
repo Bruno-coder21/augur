@@ -89,11 +89,14 @@ class Store:
             self._connect = connect
         self._lock = threading.RLock()
         self._conn: Optional[sqlite3.Connection] = None
+        self._closed = False
 
     # -- plumbing ---------------------------------------------------------
     @property
     def conn(self) -> sqlite3.Connection:
         with self._lock:
+            if self._closed:
+                raise RuntimeError("bussola store is closed (plugin unloaded)")
             if self._conn is None:
                 conn = self._connect()
                 conn.row_factory = sqlite3.Row
@@ -139,6 +142,7 @@ class Store:
 
     def close(self) -> None:
         with self._lock:
+            self._closed = True
             if self._conn is not None:
                 self._conn.close()
                 self._conn = None
@@ -176,14 +180,15 @@ class Store:
             conn = self.conn
             with conn:
                 conn.execute("DELETE FROM goals")
+                conn.execute("DELETE FROM meta WHERE key='demo_goals'")  # these are the user's own goals now
                 for slot, goal in enumerate(goals, start=1):
                     conn.execute(
                         "INSERT INTO goals(slot, name, description, planned_pct, color, created_at) "
                         "VALUES(?,?,?,?,?,?)",
                         (
                             slot,
-                            privacy.clip(goal["name"], 40),
-                            privacy.clip(goal.get("description") or goal["name"], 160),
+                            privacy.clip(privacy.redact(goal["name"]), 40),
+                            privacy.clip(privacy.redact(goal.get("description") or goal["name"]), 160),
                             int(goal["planned_pct"]),
                             goal_color(slot),
                             iso(now),
@@ -228,8 +233,10 @@ class Store:
         return self._one("SELECT * FROM turns WHERE id=?", (turn_id,))
 
     def previous_classified(self, session_id: str, before_id: int) -> Optional[dict[str, Any]]:
+        """The last request the model labeled in this session (inherited short replies are skipped)."""
         return self._one(
-            "SELECT * FROM turns WHERE session_id=? AND id<? AND goal IS NOT NULL ORDER BY id DESC LIMIT 1",
+            "SELECT * FROM turns WHERE session_id=? AND id<? AND goal IS NOT NULL "
+            "AND source NOT IN ('inherited', 'answer') ORDER BY id DESC LIMIT 1",
             (session_id, before_id),
         )
 
@@ -240,17 +247,11 @@ class Store:
         )
 
     def last_classified(self, session_id: Optional[str] = None) -> Optional[dict[str, Any]]:
+        """The last labeled request with a summary; scoped to the session when one is given."""
+        where = "goal IS NOT NULL AND source NOT IN ('demo', 'inherited', 'answer') AND COALESCE(summary60,'')!=''"
         if session_id:
-            row = self._one(
-                "SELECT * FROM turns WHERE session_id=? AND goal IS NOT NULL AND source!='demo' "
-                "ORDER BY id DESC LIMIT 1",
-                (session_id,),
-            )
-            if row:
-                return row
-        return self._one(
-            "SELECT * FROM turns WHERE goal IS NOT NULL AND source!='demo' ORDER BY id DESC LIMIT 1"
-        )
+            return self._one(f"SELECT * FROM turns WHERE session_id=? AND {where} ORDER BY id DESC LIMIT 1", (session_id,))
+        return self._one(f"SELECT * FROM turns WHERE {where} ORDER BY id DESC LIMIT 1")
 
     def nudges_since(self, since: datetime) -> int:
         row = self._one(
@@ -278,6 +279,23 @@ class Store:
 
     def queue_get(self, item_id: int) -> Optional[dict[str, Any]]:
         return self._one("SELECT * FROM queue WHERE id=?", (item_id,))
+
+    def prune(self, now: datetime, days: int = 90) -> int:
+        """Retention: labeled requests older than ``days`` are deleted."""
+        from datetime import timedelta
+
+        with self._lock:
+            conn = self.conn
+            with conn:
+                cur = conn.execute("DELETE FROM turns WHERE ts<?", (iso(now - timedelta(days=days)),))
+            return int(cur.rowcount or 0)
+
+    def demo_is_stale(self, now: datetime) -> bool:
+        """True when demo rows exist but the newest one has left the 7-day window."""
+        from datetime import timedelta
+
+        row = self._one("SELECT MAX(ts) AS ts FROM turns WHERE source='demo'")
+        return bool(row and row["ts"]) and parse_iso(row["ts"]) < now - timedelta(days=7)
 
     def queue_list(self, status: Optional[str] = "parked") -> list[dict[str, Any]]:
         if status:

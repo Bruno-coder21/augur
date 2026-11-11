@@ -185,14 +185,17 @@ def allowed(tool_name: str, args: Any, drafts_dir: Path) -> bool:
     return False
 
 
-def final_reply(caption: Optional[str], png_path: Optional[str]) -> Optional[str]:
-    """The Friday run's last message, built by Augur: caption lines plus the report image.
+def final_reply(caption: Optional[str], png_path: Optional[str], text: Optional[str] = None) -> Optional[str]:
+    """The Friday run's last message, built by Augur: caption plus this run's image, or its text report.
 
     The model's own text is replaced, so nothing it read during the run can add attachments.
     """
     if not caption:
         return None
-    lines = [caption.rstrip()]
     if png_path and os.path.isabs(png_path) and os.path.isfile(png_path):
-        lines.append(f"MEDIA:{png_path}")
-    return "\n".join(lines)
+        return f"{caption.rstrip()}\nMEDIA:{png_path}"
+    if text:
+        from .privacy import inert
+
+        return f"{caption.rstrip()}\n\n{inert(text)}"
+    return caption.rstrip()

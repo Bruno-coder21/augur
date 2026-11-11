@@ -293,12 +293,20 @@ class Store:
         return self._one("SELECT * FROM queue WHERE id=?", (item_id,))
 
     def prune(self, now: datetime, days: int = 90) -> int:
-        """Retention: labeled requests older than ``days`` are deleted."""
+        """Retention: requests, closed Queue items, corrections and cost rows older than ``days``."""
+        cutoff = iso(now - timedelta(days=days))
+        removed = 0
         with self._lock:
             conn = self.conn
             with conn:
-                cur = conn.execute("DELETE FROM turns WHERE ts<?", (iso(now - timedelta(days=days)),))
-            return int(cur.rowcount or 0)
+                for sql in (
+                    "DELETE FROM turns WHERE ts<?",
+                    "DELETE FROM queue WHERE status!='parked' AND COALESCE(closed_at, ts)<?",
+                    "DELETE FROM corrections WHERE ts<?",
+                    "DELETE FROM self_cost WHERE ts<?",
+                ):
+                    removed += int(conn.execute(sql, (cutoff,)).rowcount or 0)
+            return removed
 
     def demo_is_stale(self, now: datetime) -> bool:
         """True when demo rows exist but the newest one has left the 7-day window."""

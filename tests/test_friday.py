@@ -147,7 +147,7 @@ def test_final_reply_is_built_by_augur(make_app, clock):
     out = app.on_transform_llm_output(response_text="done MEDIA:/home/user/Documents/passport.pdf ~/notes/plan.md")
     assert "MEDIA:" not in out and "/home/user" not in out and "~/notes" not in out
     built = app.build_report()
-    assert app.store.meta_get("report_execution") == "exec-1"
+    assert app._friday_report()["execution"] == "exec-1"
     reply = app.on_transform_llm_output(response_text="whatever the model said\nMEDIA:/etc/passwd")
     assert reply == built["caption"] + f"\nMEDIA:{built['path']}"
     # a later run does not reuse this run's report
@@ -155,7 +155,24 @@ def test_final_reply_is_built_by_augur(make_app, clock):
     assert "MEDIA:" not in app.on_transform_llm_output(response_text="x")
 
 
-def test_final_reply_without_image_keeps_caption(tmp_path):
+def test_final_reply_without_image_sends_the_text_report(tmp_path):
     assert friday.final_reply("🧭 caption", None) == "🧭 caption"
     assert friday.final_reply("🧭 caption", "relative.png") == "🧭 caption"
     assert friday.final_reply(None, str(tmp_path / "x.png")) is None
+    text = friday.final_reply("🧭 caption", None, "Ready for you\n  ✓ desk — see ~/notes/x.md")
+    assert text.startswith("🧭 caption\n\nReady for you") and "~/notes" not in text
+
+
+def test_failed_render_never_attaches_last_weeks_image(make_app, clock, monkeypatch):
+    pytest.importorskip("matplotlib")
+    from augur import demo
+
+    app = make_app()
+    demo.load(app.store, clock())
+    _start_friday(app, "week-1")
+    first = app.build_report()
+    monkeypatch.setattr(report, "render_png", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("font")))
+    _start_friday(app, "week-2")
+    app.build_report()
+    reply = app.on_transform_llm_output(response_text="x")
+    assert first["path"] not in reply and "MEDIA:" not in reply and "Ready for you" in reply

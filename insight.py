@@ -110,5 +110,25 @@ def cached(store: Any, key: str, allow_pinned: bool = False) -> tuple[bool, Opti
     return True, data.get("result")
 
 
-def remember(store: Any, key: str, result: Optional[dict[str, Any]], pinned: bool = False) -> None:
-    store.meta_set("insight_cache", json.dumps({"key": key, "result": result, "pinned": pinned}))
+def remember(store: Any, key: str, result: Optional[dict[str, Any]], pinned: bool = False, at: str = "") -> None:
+    store.meta_set("insight_cache", json.dumps({"key": key, "result": result, "pinned": pinned, "at": at}))
+
+
+def latest(store: Any, now: Any, allow_pinned: bool = False) -> Optional[dict[str, Any]]:
+    """The last computed hidden priority, if it is less than 7 days old (no model call)."""
+    from datetime import timedelta
+
+    from .store import parse_iso
+
+    try:
+        data = json.loads(store.meta_get("insight_cache") or "{}")
+    except ValueError:
+        return None
+    if data.get("pinned"):
+        return data.get("result") if allow_pinned else None
+    try:
+        if now - parse_iso(data.get("at") or "") > timedelta(days=7):
+            return None
+    except ValueError:
+        return None
+    return data.get("result")

@@ -161,13 +161,17 @@ def _empty_queue_line(stats: WeekStats, lang: str) -> str:
 
 
 def prune_files(data_dir: Path, now: datetime, report_days: int = 56, draft_days: int = 30) -> int:
-    """Retention for files: report PNGs after 8 weeks, drafts after 30 days.
+    """Retention for files: report PNGs after 8 weeks, drafts (any depth) and eval outputs after 30 days.
 
     Never follows a symlinked folder out of the plugin data dir.
     """
     removed = 0
     root = os.path.realpath(data_dir)
-    for folder, pattern, days in ((data_dir, "report-*.png", report_days), (data_dir / "drafts", "*", draft_days)):
+    for folder, pattern, days in (
+        (data_dir, "report-*.png", report_days),
+        (data_dir / "drafts", "**/*", draft_days),
+        (data_dir / "evals", "*", draft_days),
+    ):
         if not folder.is_dir() or folder.is_symlink():
             continue
         real = os.path.realpath(folder)
@@ -175,6 +179,8 @@ def prune_files(data_dir: Path, now: datetime, report_days: int = 56, draft_days
             continue
         cutoff = now.timestamp() - days * 86400
         for path in folder.glob(pattern):
+            if os.path.commonpath([os.path.realpath(path), real]) != real:
+                continue  # never follow a link out of the folder
             try:
                 if path.is_file() and not path.is_symlink() and path.stat().st_mtime < cutoff:
                     path.unlink()

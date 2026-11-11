@@ -35,6 +35,12 @@ _ACK_RE = re.compile(
     r"obrigad[oa]|valeu|vlw|sim|não|nao|beleza|blz|show|massa|perfeito|certo|entendi|tá|ta|👍|🙏|❤️)[\s!.?]*$",
     re.IGNORECASE,
 )
+# The reply to a text nudge: only these count as the answer (anything else is a new request).
+_ANSWER_RE = re.compile(
+    r"^\s*(?:[12][.)]?|park( it)?|do it( now)?|now|later|yes|no|sure|ok(ay)?|estacionar|estaciona|"
+    r"fazer agora|faz agora|agora|depois|sim|não|nao)\b[\s\w!.,]{0,30}$",
+    re.IGNORECASE,
+)
 HEALTH_WINDOW = 20
 
 
@@ -89,6 +95,11 @@ class Augur:
             cooldown_minutes=config.get(self.ctx, "nudge_cooldown_minutes"),
             max_per_day=config.get(self.ctx, "max_nudges_per_day"),
         )
+
+    def _classifier_struggling(self) -> bool:
+        """Half or more of the last 10 labels were late or failed."""
+        recent = (self.store.meta_get("clf_health") or "")[-10:]
+        return len(recent) >= 10 and sum(1 for c in recent if c != "o") * 2 >= len(recent)
 
     def health(self) -> tuple[int, int]:
         """(slow or failed, total) over the last classifier calls."""
@@ -166,12 +177,15 @@ class Augur:
         if answering:
             state.answer_turn = turn_id
 
-        if answering and len(message.strip()) < 60:
+        if answering and _ANSWER_RE.match(message):
             # "Park it" / "do it now": the reply to a nudge is not a new request. Its tokens
             # (the detour work, when the answer is "do it now") go to the nudged request.
             if turn_id:
                 state.turn_rows[turn_id] = state.pending_row
             return None
+        if answering:
+            self._decide(state, "do_now")  # moved on to something else: the nudge was declined
+            answering = False
 
         if len(message.strip()) < clf.SHORT_MESSAGE_CHARS and _ACK_RE.match(message):
             return None  # "ok", "thanks": not a request, not counted, no row
@@ -195,18 +209,26 @@ class Augur:
         # Only hold the turn when this request could trigger a nudge (the previous one was an
         # open detour). Otherwise label it in the background: zero added latency.
         limits = self._limits()
-        wait = not answering and nudge.nudge_possible(
-            self.store, session_id=session_id, turn_row=row, now=now, limits=limits
+        wait = (
+            not self._classifier_struggling()  # circuit breaker: a slow or failing provider is never waited on
+            and nudge.nudge_possible(
+                self.store, session_id=session_id, turn_row=row, now=now, limits=limits,
+                is_labeling=lambda row_id: row_id in state.labeling,
+            )
         )
+        state.labeling.add(row)
 
         def on_late(late: Optional[clf.Result]) -> None:
-            if not wait:  # not held, but still measured: would it have made the 1.5 s budget?
-                self._health("fail" if late is None else ("late" if late.latency > self.classifier.budget else "ok"))
-            # the previous request may have been labeled meanwhile: read it again
-            prev = self.store.get_turn(recent_prev["id"]) if recent_prev else None
-            goal = self._record(row, late, prev, source="background" if wait else "live", session_id=session_id)
-            if wait and late is not None and goal == 0:
-                self._late_nudge(state, row, turn_id, late, goals, session_id)
+            try:
+                if not wait:  # not held, but still measured: would it have made the 1.5 s budget?
+                    self._health("fail" if late is None else ("late" if late.latency > self.classifier.budget else "ok"))
+                # the previous request may have been labeled meanwhile: read it again
+                prev = self.store.get_turn(recent_prev["id"]) if recent_prev else None
+                goal = self._record(row, late, prev, source="background" if wait else "live", session_id=session_id)
+                if goal == 0 and late is not None and not late.continues_previous:
+                    self._late_nudge(state, row, turn_id, late, goals, session_id)
+            finally:
+                state.labeling.discard(row)
 
         result, outcome = self.classifier.classify(
             goals,
@@ -218,11 +240,13 @@ class Augur:
         )
         if outcome != "async":
             self._health(outcome)
+        if outcome in ("ok", "fail", "busy"):
+            state.labeling.discard(row)
         if result is None:
             return None
         goal = self._record(row, result, recent_prev, source="live", session_id=session_id)
-        if goal is None or answering:
-            return None
+        if goal is None or result.continues_previous:
+            return None  # a follow-up of the same task never nudges
         if not nudge.should_nudge(
             self.store, session_id=session_id, turn_row=row, goal=goal, confidence=result.confidence, now=now,
             limits=limits,
@@ -258,6 +282,7 @@ class Augur:
         goal = result.goal
         if result.continues_previous and previous and previous["goal"] is not None:
             goal = int(previous["goal"])
+            source = "inherited"  # same task as before: counted for its goal, never part of a streak
         fields: dict[str, Any] = {"goal": goal, "confidence": result.confidence, "source": source}
         if result.summary60:
             fields["summary60"] = result.summary60
@@ -385,9 +410,10 @@ class Augur:
             execution = self.fridays.execution_id()
             if not execution:
                 return None
-            if self.store.meta_get("report_execution") == execution:
-                # Augur writes the run's last message itself: caption + this run's report image
-                return friday.final_reply(self.store.meta_get("report_caption"), self.store.meta_get("last_report_path"))
+            built = self._friday_report()
+            if built.get("execution") == execution:
+                # Augur writes the run's last message itself: caption + this run's image (or text report)
+                return friday.final_reply(built.get("caption"), built.get("path"), built.get("text"))
             # no report this run: deliver the model's text, but nothing in it can attach a file
             return privacy.inert(response_text) if isinstance(response_text, str) else None
         except Exception as exc:
@@ -405,11 +431,13 @@ class Augur:
 
     def hidden_priority(self, stats: report.WeekStats, compute: bool) -> Optional[dict[str, Any]]:
         key = insight.cache_key(iso(stats.start)[:10], stats.detours)
+        if not compute:  # panel and chip: the last value computed in the past 7 days
+            return insight.latest(self.store, self.clock(), allow_pinned=stats.has_demo)
         hit, value = insight.cached(self.store, key, allow_pinned=stats.has_demo)
-        if hit or not compute:
+        if hit:
             return value
         value = insight.find(lambda: self.ctx.llm, stats.detours)
-        insight.remember(self.store, key, value)
+        insight.remember(self.store, key, value, at=iso(self.clock()))
         return value
 
     def _housekeeping(self, now: datetime) -> None:
@@ -426,10 +454,17 @@ class Augur:
         hidden = self.hidden_priority(stats, compute=True)
         out = report.build(self.store, self.data_dir, now, lang, hidden)
         execution = self.fridays.execution_id()
-        if execution:
-            self.store.meta_set("report_caption", out["caption"])
-            self.store.meta_set("report_execution", execution)
+        if execution:  # remembered per run: a later run never reuses this image
+            self.store.meta_set("friday_report", json.dumps({
+                "execution": execution, "caption": out["caption"], "path": out.get("path"), "text": out.get("text"),
+            }))
         return out
+
+    def _friday_report(self) -> dict[str, Any]:
+        try:
+            return json.loads(self.store.meta_get("friday_report") or "{}")
+        except ValueError:
+            return {}
 
     def week(self) -> report.WeekStats:
         now = self.clock()

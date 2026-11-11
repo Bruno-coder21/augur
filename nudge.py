@@ -15,7 +15,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from . import strings
 from .store import Store, parse_iso
@@ -61,13 +61,18 @@ def should_nudge(
     return _streak_open(store, session_id, turn_row, now, limits)
 
 
-def nudge_possible(store: Store, *, session_id: str, turn_row: int, now: datetime, limits: Limits) -> bool:
-    """Could this turn nudge at all, whatever its label? Decides whether to hold the turn."""
-    if store.previous_classified(session_id, turn_row) is None:
-        # the previous request may still be labeling in the background: wait only if it is recent
-        last = store.previous_user_turn(session_id, turn_row)
-        if last is None or last["goal"] is not None or last.get("source") == "inherited":
-            return False
+def nudge_possible(
+    store: Store, *, session_id: str, turn_row: int, now: datetime, limits: Limits,
+    is_labeling: Callable[[int], bool] = lambda _row: False,
+) -> bool:
+    """Could this turn nudge at all, whatever its label? Decides whether to hold the turn.
+
+    True only when the previous request is an open detour, or is still being labeled right
+    now (a model call is in flight for it). A greeting, a short follow-up, a neutral or failed
+    label never holds the next turn.
+    """
+    last = store.previous_user_turn(session_id, turn_row)
+    if last is not None and last["goal"] is None and is_labeling(int(last["id"])):
         return now - parse_iso(last["ts"]) <= STREAK_WINDOW
     return _streak_open(store, session_id, turn_row, now, limits)
 
@@ -101,6 +106,7 @@ class SessionState:
     answer_turn: Optional[str] = None  # the next turn, which answers a text nudge
     clarify_turns: set[str] = field(default_factory=set)
     notes: dict[str, tuple[int, str]] = field(default_factory=dict)  # turn_id -> (row, 🧭 line) for a late label
+    labeling: set[int] = field(default_factory=set)  # rows with a model call in flight
 
 
 class SessionStates:

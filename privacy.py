@@ -34,10 +34,14 @@ _MEDIA_TAG = re.compile(r"media\s*:", re.IGNORECASE)
 _PATH_START = re.compile(r"(?<![/:\w.∕])(~?)/(?=[\w.\-])")
 
 
+_DRIVE = re.compile(r"(?<![\w])([A-Za-z]):(?=[\\/])")  # C:\Users\... or C:/Users/... (Windows gateways)
+
+
 def inert(text: Any) -> str:
     """Safe to show in any reply: no control chars, no MEDIA tags, no attachable paths."""
     value = _CONTROL.sub("", "" if text is None else str(text))
     value = _MEDIA_TAG.sub("MEDIA ·", value)
+    value = _DRIVE.sub(lambda m: m.group(1) + "꞉", value)  # modifier-letter colon: looks the same
     return _PATH_START.sub(lambda m: m.group(1) + "∕", value)
 
 

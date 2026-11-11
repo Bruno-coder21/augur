@@ -5,6 +5,8 @@
 [![CI](https://github.com/Bruno-coder21/augur/actions/workflows/ci.yml/badge.svg)](https://github.com/Bruno-coder21/augur/actions/workflows/ci.yml)
 · Hermes Agent plugin · `requires_hermes >= 0.23.1` · MIT
 
+**▶ 35-second demo:** https://x.com/verona_M2/status/2120635657705984188
+
 ## Why
 
 An agent that can do anything makes it easy to do everything. One quick question turns into a website tweak, then a trip plan, and the week's real priorities get whatever is left. Augur keeps your agent pointed at the 3 goals you chose for the week, without getting in your way.

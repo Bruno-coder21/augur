@@ -107,7 +107,7 @@ def test_caption_mentions_parked_items_waiting(make_app):
     app = make_app()
     app.store.queue_add("compare standing desks", app.clock())
     out = app.build_report()
-    assert "1 parked items wait" in out["caption"]
+    assert "1 parked item waits" in out["caption"]
 
 
 def test_closed_store_never_reopens(make_app):
@@ -118,3 +118,20 @@ def test_closed_store_never_reopens(make_app):
     with pytest.raises(RuntimeError):
         app.store.goals()
     assert turn(app, "draft the pilot pricing tiers for VDRI") is None  # silent, no crash
+
+
+def test_caption_plural_and_eval_cost_not_counted(make_app, clock):
+    from bussola import report
+
+    app = make_app()
+    for summary in ("a", "b"):
+        app.store.queue_add(summary, clock())
+    items = app.store.queue_list()
+    app.store.queue_close(items[0]["id"], "needs_you", "x", None, clock())
+    app.store.queue_close(items[1]["id"], "done", "y", None, clock())
+    stats = report.week_stats(app.store, clock())
+    assert "1 needs you" in report.caption_lines(stats, "en")[0]
+    app.evaluating = True
+    app.on_post_auxiliary_call(aux_task="bussola_classifier", usage={"total_tokens": 999})
+    app.evaluating = False
+    assert app.week().self_tokens == 0

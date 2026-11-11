@@ -23,6 +23,10 @@ STRINGS: dict[str, dict[str, str]] = {
             "confirm in one line, and stop.\n"
             "If they choose \"Do it now\": do the task normally and do not mention this again."
         ),
+        "nudge_note": (
+            "🧭 Heads-up: 2nd request in a row off your goals (closest: {closest}). "
+            "If more ideas like this come up, /park <idea> saves them for the Friday run."
+        ),
         # --- onboarding and goals ---
         "onboarding": (
             "🧭 Bussola keeps your agent pointed at your 3 goals for the week.\n"
@@ -94,9 +98,13 @@ STRINGS: dict[str, dict[str, str]] = {
         "report_footer": "Bussola cost: {tokens} tokens · {corrections} corrections this week",
         "report_nothing_parked": "Nothing parked this week.",
         "report_waiting": "{n} parked, waiting for the Friday run.",
-        "report_caption_waiting": "🧭 Your week: {pct}% went to detours. {n} parked items wait for the Friday run.",
+        "report_caption_waiting": "🧭 Your week: {pct}% went to detours. {n} parked {items_word} for the Friday run.",
+        "items_wait_one": "item waits",
+        "items_wait_many": "items wait",
         "report_demo": "includes demo data",
-        "report_caption": "🧭 Your week: {pct}% went to detours. {ready} of {total} parked items are ready, {needs} need you.",
+        "report_caption": "🧭 Your week: {pct}% went to detours. {ready} of {total} parked items are ready, {needs} {needs_word}.",
+        "needs_one": "needs you",
+        "needs_many": "need you",
         "report_caption_noqueue": "🧭 Your week: {pct}% went to detours. Nothing was parked.",
         "report_caption_hidden": "Hidden priority spotted: \"{theme}\". Swap it in with /bussola goals.",
         "report_text_fallback": "(Chart unavailable: matplotlib is not installed. Text report below.)",
@@ -131,6 +139,10 @@ STRINGS: dict[str, dict[str, str]] = {
             "Se escolherem \"Estacionar\": chame bussola_park com um resumo de no máximo 60 caracteres, "
             "confirme em uma linha e pare.\n"
             "Se escolherem \"Fazer agora\": faça a tarefa normalmente e não toque mais no assunto."
+        ),
+        "nudge_note": (
+            "🧭 Aviso: 2º pedido seguido fora das suas metas (mais próxima: {closest}). "
+            "Se surgirem mais ideias assim, /park <ideia> guarda para a Sexta do Desvio."
         ),
         "onboarding": (
             "🧭 A Bússola mantém seu agente apontado para as suas 3 metas da semana.\n"
@@ -196,9 +208,13 @@ STRINGS: dict[str, dict[str, str]] = {
         "report_footer": "Custo da Bússola: {tokens} tokens · {corrections} correções nesta semana",
         "report_nothing_parked": "Nada estacionado nesta semana.",
         "report_waiting": "{n} estacionados, esperando a Sexta do Desvio.",
-        "report_caption_waiting": "🧭 Sua semana: {pct}% foi para desvios. {n} itens estacionados esperam a Sexta do Desvio.",
+        "report_caption_waiting": "🧭 Sua semana: {pct}% foi para desvios. {n} {items_word} a Sexta do Desvio.",
+        "items_wait_one": "item estacionado espera",
+        "items_wait_many": "itens estacionados esperam",
         "report_demo": "inclui dados de demonstração",
-        "report_caption": "🧭 Sua semana: {pct}% foi para desvios. {ready} de {total} itens estacionados estão prontos, {needs} precisam de você.",
+        "report_caption": "🧭 Sua semana: {pct}% foi para desvios. {ready} de {total} itens estacionados estão prontos, {needs} {needs_word}.",
+        "needs_one": "precisa de você",
+        "needs_many": "precisam de você",
         "report_caption_noqueue": "🧭 Sua semana: {pct}% foi para desvios. Nada foi estacionado.",
         "report_caption_hidden": "Prioridade oculta encontrada: \"{theme}\". Troque com /bussola goals.",
         "report_text_fallback": "(Gráfico indisponível: matplotlib não está instalado. Relatório em texto abaixo.)",

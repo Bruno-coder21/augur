@@ -137,11 +137,15 @@ def caption_lines(stats: WeekStats, lang: str) -> list[str]:
     if total:
         lines.append(
             strings.t(
-                "report_caption", lang, pct=stats.detour_pct, ready=stats.ready, total=total, needs=stats.needs_you
+                "report_caption", lang, pct=stats.detour_pct, ready=stats.ready, total=total, needs=stats.needs_you,
+                needs_word=strings.t("needs_one" if stats.needs_you == 1 else "needs_many", lang),
             )
         )
     elif stats.parked:
-        lines.append(strings.t("report_caption_waiting", lang, pct=stats.detour_pct, n=stats.parked))
+        lines.append(strings.t(
+            "report_caption_waiting", lang, pct=stats.detour_pct, n=stats.parked,
+            items_word=strings.t("items_wait_one" if stats.parked == 1 else "items_wait_many", lang),
+        ))
     else:
         lines.append(strings.t("report_caption_noqueue", lang, pct=stats.detour_pct))
     if stats.hidden:

@@ -2,7 +2,7 @@
 
 **Your agent knows your 3 priorities, notices when you drift, parks the detour, and on Friday clears what it can and shows where your attention actually went.**
 
-[![CI](https://github.com/OWNER/bussola/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/bussola/actions/workflows/ci.yml)
+[![CI](https://github.com/Bruno-coder21/bussola/actions/workflows/ci.yml/badge.svg)](https://github.com/Bruno-coder21/bussola/actions/workflows/ci.yml)
 · Hermes Agent plugin · `requires_hermes >= 0.23.1` · MIT
 
 <!-- GIF: the 🧭 question and the "Park it" button on Telegram (10 s) -->
@@ -45,7 +45,7 @@ Each goal keeps one color everywhere (terminal, PNG, Telegram, Desktop): blue, a
 ## Quickstart (under 60 seconds)
 
 ```bash
-hermes plugins install OWNER/bussola --enable   # or `bussola` once it is in the catalog
+hermes plugins install Bruno-coder21/bussola --enable   # or `bussola` once it is in the catalog
 ```
 
 Then, in any Hermes chat (CLI, Telegram, Desktop):

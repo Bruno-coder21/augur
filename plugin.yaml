@@ -4,7 +4,7 @@ manifest_version: 2
 api_version: 1
 license: MIT
 author: Bruno Verona
-homepage: https://github.com/bverona/bussola
+homepage: https://github.com/Bruno-coder21/bussola
 description: Your agent knows your 3 priorities, notices drift, parks detours and clears them on Friday.
 tags: [productivity, focus, telegram, cron]
 requires_hermes: ">=0.23.1"

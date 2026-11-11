@@ -49,6 +49,7 @@ class Bussola:
         self.sessions = nudge.SessionStates()
         self.classifier = clf.Classifier(lambda: self.ctx.llm, budget=budget)
         self.fridays = friday.FridayRuns(self._cron, self._friday_jobs)
+        self.evaluating = False
 
     def close(self) -> None:
         self.classifier.shutdown()
@@ -197,7 +198,9 @@ class Bussola:
         def on_late(late: Optional[clf.Result]) -> None:
             if not wait:  # not held, but still measured: would it have made the 1.5 s budget?
                 self._health("fail" if late is None else ("late" if late.latency > self.classifier.budget else "ok"))
-            self._record(row, late, recent_prev, source="background" if wait else "live", session_id=session_id)
+            goal = self._record(row, late, recent_prev, source="background" if wait else "live", session_id=session_id)
+            if wait and late is not None and goal == 0:
+                self._late_nudge(state, row, turn_id, late, goals, session_id)
 
         result, outcome = self.classifier.classify(
             goals,
@@ -229,6 +232,27 @@ class Bussola:
         self.store.update_turn(row, nudged=1)
         state.pending_row, state.pending_turn, state.answer_turn = row, turn_id, None
         return {"context": nudge.nudge_context(goals, result.closest_goal, self.lang())}
+
+    def _late_nudge(self, state, row: int, turn_id: str, result: clf.Result, goals, session_id: str) -> None:
+        """The label came after the agent started: no question, but a 🧭 line under the reply."""
+        try:
+            if not turn_id or not nudge.should_nudge(
+                self.store,
+                session_id=session_id,
+                turn_row=row,
+                goal=0,
+                confidence=result.confidence,
+                now=self.clock(),
+                min_confidence=config.get(self.ctx, "min_confidence"),
+                cooldown_minutes=config.get(self.ctx, "nudge_cooldown_minutes"),
+                max_per_day=config.get(self.ctx, "max_nudges_per_day"),
+            ):
+                return
+            # the user did it anyway: count the nudge and start the quiet time, like "Do it now"
+            self.store.update_turn(row, nudged=1, decision="do_now", decided_at=iso(self.clock()))
+            state.notes[turn_id] = nudge.nudge_note(goals, result.closest_goal, self.lang())
+        except Exception as exc:
+            log.debug("bussola late nudge skipped: %s", exc)
 
     def _record(
         self, row: int, result: Optional[clf.Result], previous: Optional[dict], source: str, session_id: str = ""
@@ -322,7 +346,7 @@ class Bussola:
 
     def on_post_auxiliary_call(self, aux_task: str = "", usage: Any = None, **_: Any) -> None:
         try:
-            if aux_task in metering.BUSSOLA_TASKS:
+            if aux_task in metering.BUSSOLA_TASKS and not self.evaluating:  # the dev eval is not runtime cost
                 tokens = metering.usage_tokens(usage)
                 if tokens:
                     self.store.self_cost_add(aux_task, tokens, self.clock())
@@ -349,8 +373,14 @@ class Bussola:
                 return {"action": "block", "message": strings.t("friday_blocked", "en")}
             return None
 
-    def on_transform_llm_output(self, response_text: str = "", **_: Any) -> Optional[str]:
+    def on_transform_llm_output(
+        self, response_text: str = "", session_id: str = "", turn_id: str = "", **_: Any
+    ) -> Optional[str]:
         try:
+            state = self.sessions.peek(session_id) if session_id else None
+            note = state.notes.pop(turn_id, None) if state is not None and turn_id else None
+            if note and isinstance(response_text, str) and response_text.strip():
+                return response_text.rstrip() + "\n\n" + note
             execution = self.fridays.execution_id()
             if not execution or self.store.meta_get("report_execution") != execution:
                 return None  # only a report built during *this* run is ever attached

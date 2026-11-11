@@ -99,6 +99,12 @@ def nudge_context(goals: list[dict[str, Any]], closest_goal: int, lang: str) -> 
     )
 
 
+def nudge_note(goals: list[dict[str, Any]], closest_goal: int, lang: str) -> str:
+    """The after-the-fact version, appended to the reply when the label came too late to ask first."""
+    names = {g["slot"]: g["name"] for g in goals}
+    return strings.t("nudge_note", lang, closest=names.get(closest_goal, names.get(1, "")))
+
+
 @dataclass
 class SessionState:
     """Short-lived, per-session state; expires after 2 hours of silence."""
@@ -109,6 +115,7 @@ class SessionState:
     pending_turn: Optional[str] = None  # turn_id that carried the nudge
     answer_turn: Optional[str] = None  # the next turn, which answers a text nudge
     clarify_turns: set[str] = field(default_factory=set)
+    notes: dict[str, str] = field(default_factory=dict)  # turn_id -> 🧭 line to append (late label)
 
 
 class SessionStates:

@@ -155,9 +155,13 @@ def run(
 
 
 def run_with_app(app: Any, final: bool = False) -> tuple[Path, str]:
-    return run(
-        app.classifier.call,
-        final=final,
-        min_conf=config.get(app.ctx, "min_confidence"),
-        out_dir=app.data_dir / "evals",
-    )
+    app.evaluating = True  # eval calls are not counted as Bussola's own cost
+    try:
+        return run(
+            app.classifier.call,
+            final=final,
+            min_conf=config.get(app.ctx, "min_confidence"),
+            out_dir=app.data_dir / "evals",
+        )
+    finally:
+        app.evaluating = False

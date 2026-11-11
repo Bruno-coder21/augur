@@ -126,3 +126,29 @@ def test_hook_errors_are_silent(make_app, monkeypatch):
     app = make_app(lambda kw: detour())
     monkeypatch.setattr(app.store, "insert_turn", lambda **kw: (_ for _ in ()).throw(RuntimeError("db locked")))
     assert turn(app, "find a good recipe for a dinner party") is None
+
+
+def test_late_label_appends_a_note_instead_of_waiting(make_app):
+    import time
+
+    calls = {"n": 0}
+
+    def responder(kw):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            time.sleep(0.4)  # slower than the budget below
+        return detour(closest=2)
+
+    app = make_app(responder, budget=0.1)
+    turn(app, "find a good recipe for a dinner party", turn_id="a")
+    started = time.monotonic()
+    assert turn(app, "and a playlist for that dinner party", turn_id="b", drain=False) is None
+    assert time.monotonic() - started < 0.3
+    app.classifier.wait_idle(5)
+    out = app.on_transform_llm_output(response_text="Here is your playlist.", session_id="s1", turn_id="b")
+    assert out.startswith("Here is your playlist.") and "🧭" in out and "Hackathons" in out
+    assert app.on_transform_llm_output(response_text="again", session_id="s1", turn_id="b") is None  # once
+    row = app.store.get_turn(2)
+    assert row["nudged"] == 1 and row["decision"] == "do_now"
+    # quiet time follows, exactly like after "Do it now"
+    assert turn(app, "and a dessert for the dinner party too", turn_id="c") is None

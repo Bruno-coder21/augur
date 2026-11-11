@@ -30,7 +30,8 @@ def test_slow_model_returns_none_fast_and_records_late_result(make_app):
     row = app.store.get_turn(2)
     assert row["goal"] == 0
     assert row["source"] == "background"
-    assert row["nudged"] == 0
+    assert row["nudged"] == 1  # too late to ask first: a 🧭 note goes under the reply instead
+    assert "🧭" in app.on_transform_llm_output(response_text="Rome plan.", session_id="s1", turn_id="b")
     assert app.health() == (1, 2)
 
 
